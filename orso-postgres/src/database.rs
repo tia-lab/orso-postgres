@@ -61,7 +61,7 @@ impl Database {
     pub async fn execute(
         &self,
         sql: &str,
-        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+        params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<u64> {
         let client = self.pool.get().await?;
         let rows = client.execute(sql, params).await?;
@@ -71,7 +71,7 @@ impl Database {
     pub async fn query(
         &self,
         sql: &str,
-        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+        params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Vec<Row>> {
         let client = self.pool.get().await?;
         let rows = client.query(sql, params).await?;
@@ -81,7 +81,7 @@ impl Database {
     pub async fn query_one(
         &self,
         sql: &str,
-        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+        params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Row> {
         let client = self.pool.get().await?;
         let row = client.query_one(sql, params).await?;
@@ -91,7 +91,7 @@ impl Database {
     pub async fn query_opt(
         &self,
         sql: &str,
-        params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+        params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Option<Row>> {
         let client = self.pool.get().await?;
         let row = client.query_opt(sql, params).await?;

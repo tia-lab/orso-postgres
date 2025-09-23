@@ -1,6 +1,6 @@
 use crate::{
     Aggregate, Database, Error, FilterOperator, PaginatedResult, Pagination, QueryBuilder, Result,
-    SearchFilter, Sort, SortOrder, Utils,
+    SearchFilter, Sort, SortOrder,
 };
 use std::collections::HashMap;
 use tracing::{debug, info, trace, warn};
@@ -34,10 +34,12 @@ impl CrudOperations {
 
         debug!(sql = %sql, "Executing SQL");
 
-        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
-            map.values().map(|v| T::value_to_postgres_param(v)).collect();
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
+            .values()
+            .map(|v| T::value_to_postgres_param(v))
+            .collect();
 
-        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
             params.iter().map(|p| p.as_ref()).collect();
 
         db.execute(&sql, &param_refs).await?;
@@ -108,12 +110,12 @@ impl CrudOperations {
 
         // Build WHERE clause for unique columns
         let mut where_conditions = Vec::new();
-        let mut where_params = Vec::new();
+        let mut where_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
 
-        for column in &unique_columns {
+        for (param_index, column) in unique_columns.iter().enumerate() {
             if let Some(value) = map.get(*column) {
-                where_conditions.push(format!("{column} = ?"));
-                where_params.push(T::value_to_libsql_value(value));
+                where_conditions.push(format!("{column} = ${}", param_index + 1));
+                where_params.push(T::value_to_postgres_param(value));
             }
         }
 
@@ -132,11 +134,14 @@ impl CrudOperations {
         info!(table = table_name, "Checking for existing record");
         debug!(sql = %sql, "Executing upsert query");
 
-        let mut rows = db.conn.query(&sql, where_params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            where_params.iter().map(|p| p.as_ref()).collect();
 
-        if let Some(row) = rows.next().await? {
+        let rows = db.query(&sql, &param_refs).await?;
+
+        if !rows.is_empty() {
             // Record exists, update it
-            let _row_map = T::row_to_map(&row)?;
+            let _row_map = T::row_to_map(&rows[0])?;
             info!(table = table_name, "Found existing record, updating");
             Self::update_with_table(model, db, table_name).await
         } else {
@@ -173,8 +178,13 @@ impl CrudOperations {
         for model in models {
             let map = model.to_map()?;
             let columns: Vec<String> = map.keys().cloned().collect();
-            let placeholders: Vec<String> = columns.iter().map(|_| "?".to_string()).collect();
-            let params: Vec<libsql::Value> = map.values().map(|v| T::value_to_libsql_value(v)).collect();
+            let placeholders: Vec<String> =
+                (1..=columns.len()).map(|i| format!("${}", i)).collect();
+
+            let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
+                .values()
+                .map(|v| T::value_to_postgres_param(v))
+                .collect();
 
             let sql = format!(
                 "INSERT INTO {} ({}) VALUES ({})",
@@ -183,7 +193,10 @@ impl CrudOperations {
                 placeholders.join(", ")
             );
 
-            db.conn.execute(&sql, params).await?;
+            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+                params.iter().map(|p| p.as_ref()).collect();
+
+            db.execute(&sql, &param_refs).await?;
         }
         Ok(())
     }
@@ -205,7 +218,7 @@ impl CrudOperations {
         T: crate::Orso,
     {
         let sql = format!(
-            "SELECT * FROM {} WHERE {} = ? LIMIT 1",
+            "SELECT * FROM {} WHERE {} = $1 LIMIT 1",
             table_name,
             T::primary_key_field() // Use dynamic primary key field name
         );
@@ -213,12 +226,15 @@ impl CrudOperations {
         debug!(table =table_name, id = %id, "Finding record by ID");
         debug!(sql = %sql, "Executing find query");
 
-        let mut rows = db
-            .conn
-            .query(&sql, vec![libsql::Value::Text(id.to_string())])
-            .await?;
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+            vec![Box::new(id.to_string())];
 
-        if let Some(row) = rows.next().await? {
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = db.query(&sql, &param_refs).await?;
+
+        if let Some(row) = rows.get(0) {
             let map = T::row_to_map(&row)?;
             debug!(table =table_name, id = %id, "Found record");
             Ok(Some(T::from_map(map)?))
@@ -632,16 +648,11 @@ impl CrudOperations {
         T: crate::Orso,
     {
         let sql = format!("SELECT COUNT(*) FROM {}", table_name);
-        let mut rows = db.conn.query(&sql, vec![libsql::Value::Null; 0]).await?;
+        let rows = db.query(&sql, &[]).await?;
 
-        if let Some(row) = rows.next().await? {
-            row.get_value(0)
-                .ok()
-                .and_then(|v| match v {
-                    libsql::Value::Integer(i) => Some(i as u64),
-                    _ => None,
-                })
-                .ok_or_else(|| Error::Query("Failed to get count".to_string()))
+        if let Some(row) = rows.get(0) {
+            let count: i64 = row.get(0);
+            Ok(count as u64)
         } else {
             Err(Error::Query("No count result".to_string()))
         }
@@ -666,16 +677,14 @@ impl CrudOperations {
         let builder = QueryBuilder::new(table_name)._where(filter);
 
         let (sql, params) = builder.build_count()?;
-        let mut rows = db.conn.query(&sql, params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
 
-        if let Some(row) = rows.next().await? {
-            row.get_value(0)
-                .ok()
-                .and_then(|v| match v {
-                    libsql::Value::Integer(i) => Some(i as u64),
-                    _ => None,
-                })
-                .ok_or_else(|| Error::Query("Failed to get count".to_string()))
+        let rows = db.query(&sql, &param_refs).await?;
+
+        if let Some(row) = rows.get(0) {
+            let count: i64 = row.get(0);
+            Ok(count as u64)
         } else {
             Err(Error::Query("No count result".to_string()))
         }
@@ -702,37 +711,43 @@ impl CrudOperations {
         let updated_at_field = T::updated_at_field();
 
         let mut set_clauses = Vec::new();
+        let mut param_index = 1;
         for k in map.keys() {
             if k != pk_field {
                 // For updated_at fields, use database function instead of model value
                 if updated_at_field.is_some() && k == updated_at_field.unwrap() {
-                    set_clauses.push(format!("{k} = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')"));
+                    set_clauses.push(format!("{k} = NOW()"));
                 } else {
-                    set_clauses.push(format!("{k} = ?"));
+                    set_clauses.push(format!("{k} = ${}", param_index));
+                    param_index += 1;
                 }
             }
         }
 
         let sql = format!(
-            "UPDATE {} SET {} WHERE {} = ?",
+            "UPDATE {} SET {} WHERE {} = ${}",
             table_name,
             set_clauses.join(", "),
-            pk_field
+            pk_field,
+            param_index
         );
 
         info!(table = table_name, id = %id, "Updating record");
         debug!(sql = %sql, "Executing update query");
 
-        let mut params: Vec<libsql::Value> = map
+        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
             .iter()
             .filter(|(k, _)| {
                 k != &pk_field && !(updated_at_field.is_some() && k == &updated_at_field.unwrap())
             })
-            .map(|(_, v)| T::value_to_libsql_value(v))
+            .map(|(_, v)| T::value_to_postgres_param(v))
             .collect();
-        params.push(libsql::Value::Text(id.clone()));
+        params.push(Box::new(id.clone()));
 
-        db.conn.execute(&sql, params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        db.execute(&sql, &param_refs).await?;
 
         info!(table = table_name, id = %id, "Successfully updated record");
         Ok(())
@@ -766,33 +781,39 @@ impl CrudOperations {
             let map = model.to_map()?;
             let pk_field = T::primary_key_field();
             let updated_at_field = T::updated_at_field();
-            
+
             let mut set_clauses = Vec::new();
-            let mut params = Vec::new();
-            
+            let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
+            let mut param_index = 1;
+
             for (k, v) in &map {
                 if k != pk_field {
                     // For updated_at fields, use database function instead of model value
                     if updated_at_field.is_some() && k == updated_at_field.unwrap() {
-                        set_clauses.push(format!("{} = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')", k));
+                        set_clauses.push(format!("{} = NOW()", k));
                     } else {
-                        set_clauses.push(format!("{} = ?", k));
-                        params.push(T::value_to_libsql_value(v));
+                        set_clauses.push(format!("{} = ${}", k, param_index));
+                        params.push(T::value_to_postgres_param(v));
+                        param_index += 1;
                     }
                 }
             }
-            
+
             // Add the ID parameter for the WHERE clause
-            params.push(libsql::Value::Text(id.clone()));
+            params.push(Box::new(id.clone()));
 
             let sql = format!(
-                "UPDATE {} SET {} WHERE {} = ?",
+                "UPDATE {} SET {} WHERE {} = ${}",
                 table_name,
                 set_clauses.join(", "),
-                pk_field
+                pk_field,
+                param_index
             );
 
-            db.conn.execute(&sql, params).await?;
+            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+                params.iter().map(|p| p.as_ref()).collect();
+
+            db.execute(&sql, &param_refs).await?;
         }
         Ok(())
     }
@@ -814,7 +835,7 @@ impl CrudOperations {
         })?;
 
         let sql = format!(
-            "DELETE FROM {} WHERE {} = ?",
+            "DELETE FROM {} WHERE {} = $1",
             table_name,
             T::primary_key_field()
         );
@@ -822,7 +843,12 @@ impl CrudOperations {
         info!(table = table_name, id = %id, "Deleting record");
         debug!(sql = %sql, "Executing delete query");
 
-        db.conn.execute(&sql, vec![libsql::Value::Text(id)]).await?;
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = vec![Box::new(id)];
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        db.execute(&sql, &param_refs).await?;
         info!(table = table_name, "Successfully deleted record");
         Ok(true)
     }
@@ -847,25 +873,29 @@ impl CrudOperations {
             return Ok(0);
         }
 
-        let mut stmts = Vec::new();
-        stmts.push("BEGIN".to_string());
-
         let pk_field = T::primary_key_field();
-        for id in ids {
-            let sql = format!(
-                "DELETE FROM {} WHERE {} = '{}'",
-                table_name,
-                pk_field,
-                id.replace("'", "''")
-            );
-            stmts.push(sql);
-        }
 
-        stmts.push("COMMIT".to_string());
-        let batch_sql = stmts.join(";");
+        // Use IN clause for efficient bulk delete
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("${}", i)).collect();
+        let sql = format!(
+            "DELETE FROM {} WHERE {} IN ({})",
+            table_name,
+            pk_field,
+            placeholders.join(", ")
+        );
 
-        db.conn.execute_batch(&batch_sql).await?;
-        Ok(ids.len() as u64)
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = ids
+            .iter()
+            .map(|id| {
+                Box::new(id.to_string()) as Box<dyn tokio_postgres::types::ToSql + Send + Sync>
+            })
+            .collect();
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let affected_rows = db.execute(&sql, &param_refs).await?;
+        Ok(affected_rows)
     }
 
     /// Upsert multiple records using Turso batch operations with automatically detected unique columns
@@ -897,13 +927,18 @@ impl CrudOperations {
 
         for model in models {
             let map = model.to_map()?;
-            
+
             // Build conflict columns for ON CONFLICT clause
             let conflict_columns = unique_columns.join(", ");
 
             let columns: Vec<String> = map.keys().cloned().collect();
-            let placeholders: Vec<String> = columns.iter().map(|_| "?".to_string()).collect();
-            let params: Vec<libsql::Value> = map.values().map(|v| T::value_to_libsql_value(v)).collect();
+            let placeholders: Vec<String> =
+                (1..=columns.len()).map(|i| format!("${}", i)).collect();
+
+            let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
+                .values()
+                .map(|v| T::value_to_postgres_param(v))
+                .collect();
 
             // Build UPDATE SET clause for conflict resolution
             let updated_at_field = T::updated_at_field();
@@ -913,9 +948,9 @@ impl CrudOperations {
                 .map(|col| {
                     // For updated_at fields, use database function instead of excluded value
                     if updated_at_field.is_some() && col == updated_at_field.unwrap() {
-                        format!("{} = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')", col)
+                        format!("{} = NOW()", col)
                     } else {
-                        format!("{} = excluded.{}", col, col)
+                        format!("{} = EXCLUDED.{}", col, col)
                     }
                 })
                 .collect();
@@ -923,10 +958,11 @@ impl CrudOperations {
             let sql = if update_sets.is_empty() {
                 // If no columns to update, just ignore conflicts
                 format!(
-                    "INSERT OR IGNORE INTO {} ({}) VALUES ({})",
+                    "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO NOTHING",
                     table_name,
                     columns.join(", "),
-                    placeholders.join(", ")
+                    placeholders.join(", "),
+                    conflict_columns
                 )
             } else {
                 // Use INSERT ... ON CONFLICT DO UPDATE for proper upsert
@@ -940,7 +976,10 @@ impl CrudOperations {
                 )
             };
 
-            db.conn.execute(&sql, params).await?;
+            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+                params.iter().map(|p| p.as_ref()).collect();
+
+            db.execute(&sql, &param_refs).await?;
         }
         Ok(())
     }
@@ -965,11 +1004,12 @@ impl CrudOperations {
 
         let (sql, params) = builder.build()?;
         let delete_sql = sql.replace("SELECT *", "DELETE");
-        db.conn.execute(&delete_sql, params).await?;
 
-        // Note: SQLite doesn't return the number of affected rows directly
-        // This is a simplified implementation
-        Ok(1)
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let affected_rows = db.execute(&delete_sql, &param_refs).await?;
+        Ok(affected_rows)
     }
 
     /// List records with optional sorting and pagination
@@ -1110,35 +1150,33 @@ impl CrudOperations {
         }
 
         let (sql, params) = builder.build()?;
-        let mut rows = db.conn.query(&sql, params).await?;
 
-        if let Some(row) = rows.next().await? {
-            let value = row
-                .get_value(0)
-                .ok()
-                .and_then(|v| match v {
-                    libsql::Value::Integer(i) => Some(i as f64),
-                    libsql::Value::Real(f) => Some(f),
-                    _ => None,
-                })
-                .ok_or_else(|| Error::Query("Failed to get aggregate value".to_string()))?;
-            Ok(Some(value))
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = db.query(&sql, &param_refs).await?;
+
+        if let Some(row) = rows.get(0) {
+            // Try to get as f64 first, then as i64 and convert
+            if let Ok(value) = row.try_get::<_, f64>(0) {
+                Ok(Some(value))
+            } else if let Ok(value) = row.try_get::<_, i64>(0) {
+                Ok(Some(value as f64))
+            } else {
+                Err(Error::Query("Failed to get aggregate value".to_string()))
+            }
         } else {
             Ok(None)
         }
     }
 
     /// Convert a database row to a HashMap
-    pub fn row_to_map(row: &libsql::Row) -> Result<HashMap<String, crate::Value>> {
+    pub fn row_to_map(row: &tokio_postgres::Row) -> Result<HashMap<String, crate::Value>> {
         let mut map = HashMap::new();
-        for i in 0..row.column_count() {
-            if let Some(column_name) = row.column_name(i) {
-                let value = row.get_value(i).unwrap_or(libsql::Value::Null);
-                map.insert(
-                    column_name.to_string(),
-                    Utils::libsql_value_to_value(&value),
-                );
-            }
+        for (i, column) in row.columns().iter().enumerate() {
+            let column_name = column.name();
+            let value = crate::Value::from_postgres_row(row, i)?;
+            map.insert(column_name.to_string(), value);
         }
         Ok(map)
     }

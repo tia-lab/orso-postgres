@@ -1,5 +1,4 @@
 use crate::{Aggregate, Database, FilterOperator, PaginatedResult, Pagination, Result, Sort};
-use std::collections::HashMap;
 
 pub struct QueryResult<T> {
     pub data: Vec<T>,
@@ -207,7 +206,7 @@ impl QueryBuilder {
     pub fn where_condition(
         mut self,
         condition: &str,
-        _params: impl Into<Vec<libsql::Value>>,
+        _params: impl Into<Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>>,
     ) -> Self {
         // This is a simplified implementation - in a real implementation you'd parse the condition
         self.where_clauses
@@ -249,7 +248,7 @@ impl QueryBuilder {
     pub fn having_condition(
         mut self,
         condition: &str,
-        _params: impl Into<Vec<libsql::Value>>,
+        _params: impl Into<Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>>,
     ) -> Self {
         // This is a simplified implementation
         self.having
@@ -268,34 +267,36 @@ impl QueryBuilder {
     /// Execute count query
     pub async fn execute_count(&self, db: &Database) -> Result<u64> {
         let (sql, params) = self.build_count()?;
-        let mut rows = db.query(&sql, params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
 
-        if let Some(row) = rows.next().await? {
-            row.get_value(0)
-                .ok()
-                .and_then(|v| match v {
-                    libsql::Value::Integer(i) => Some(i as u64),
-                    _ => None,
-                })
-                .ok_or_else(|| crate::Error::Query("Failed to get count".to_string()))
+        let rows = db.query(&sql, &param_refs).await?;
+
+        if let Some(row) = rows.get(0) {
+            let count: i64 = row.get(0);
+            Ok(count as u64)
         } else {
             Err(crate::Error::Query("No count result".to_string()))
         }
     }
 
     /// Execute aggregate query
-    pub async fn execute_aggregate(&self, db: &Database) -> Result<Vec<libsql::Row>> {
+    pub async fn execute_aggregate(&self, db: &Database) -> Result<Vec<tokio_postgres::Row>> {
         let (sql, params) = self.build()?;
-        let mut rows = db.query(&sql, params).await?;
-        let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            results.push(row);
-        }
-        Ok(results)
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = db.query(&sql, &param_refs).await?;
+        Ok(rows)
     }
 
     /// Build the SQL query
-    pub fn build(&self) -> Result<(String, Vec<libsql::Value>)> {
+    pub fn build(
+        &self,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         let mut sql = String::new();
         let mut params = Vec::new();
 
@@ -370,7 +371,12 @@ impl QueryBuilder {
     }
 
     /// Build a count query
-    pub fn build_count(&self) -> Result<(String, Vec<libsql::Value>)> {
+    pub fn build_count(
+        &self,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         let mut sql = String::new();
         let mut params = Vec::new();
 
@@ -416,7 +422,10 @@ impl QueryBuilder {
     fn build_where_clause(
         &self,
         filters: &[FilterOperator],
-    ) -> Result<(String, Vec<libsql::Value>)> {
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         let mut sql = String::new();
         let mut params = Vec::new();
 
@@ -439,20 +448,14 @@ impl QueryBuilder {
         T: crate::Orso,
     {
         let (sql, params) = self.build()?;
-        let mut rows = db.query(&sql, params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        let rows = db.query(&sql, &param_refs).await?;
 
         let mut results = Vec::new();
-        while let Some(row) = rows.next().await? {
-            let mut map = HashMap::new();
-            for i in 0..row.column_count() {
-                if let Some(column_name) = row.column_name(i) {
-                    let value = row.get_value(i).unwrap_or(libsql::Value::Null);
-                    map.insert(
-                        column_name.to_string(),
-                        T::libsql_value_to_value(&value),
-                    );
-                }
-            }
+        for row in rows {
+            let map = T::row_to_map(&row)?;
             let result: T = T::from_map(map)?;
             results.push(result);
         }
@@ -473,15 +476,13 @@ impl QueryBuilder {
         let count_builder = QueryBuilder::new(&self.table).select(vec!["COUNT(*) as count"]);
 
         let (count_sql, count_params) = count_builder.build_count()?;
-        let mut count_rows = db.query(&count_sql, count_params).await?;
-        let total: u64 = if let Some(row) = count_rows.next().await? {
-            row.get_value(0)
-                .ok()
-                .and_then(|v| match v {
-                    libsql::Value::Integer(i) => Some(i as u64),
-                    _ => None,
-                })
-                .unwrap_or(0)
+        let count_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            count_params.iter().map(|p| p.as_ref()).collect();
+
+        let count_rows = db.query(&count_sql, &count_param_refs).await?;
+        let total: u64 = if let Some(row) = count_rows.get(0) {
+            let count: i64 = row.get(0);
+            count as u64
         } else {
             0
         };

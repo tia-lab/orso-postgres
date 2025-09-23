@@ -357,7 +357,12 @@ pub struct FilterOperations;
 
 impl FilterOperations {
     /// Build SQL for a filter operator
-    pub fn build_filter_operator(filter: &FilterOperator) -> Result<(String, Vec<libsql::Value>)> {
+    pub fn build_filter_operator(
+        filter: &FilterOperator,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         match filter {
             FilterOperator::Single(filter) => Self::build_filter(filter),
             FilterOperator::And(filters) => {
@@ -399,7 +404,12 @@ impl FilterOperations {
     }
 
     /// Build SQL for an individual filter
-    pub fn build_filter(filter: &Filter) -> Result<(String, Vec<libsql::Value>)> {
+    pub fn build_filter(
+        filter: &Filter,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         let mut sql = String::new();
         let mut params = Vec::new();
 
@@ -415,7 +425,7 @@ impl FilterOperations {
                 match &filter.value {
                     FilterValue::Single(value) => {
                         sql.push('?');
-                        params.push(Utils::value_to_libsql_value(value));
+                        params.push(Utils::value_to_postgres_param(value));
                     }
                     FilterValue::Multiple(values) => {
                         sql.push('(');
@@ -424,14 +434,14 @@ impl FilterOperations {
                                 sql.push_str(", ");
                             }
                             sql.push('?');
-                            params.push(Utils::value_to_libsql_value(value));
+                            params.push(Utils::value_to_postgres_param(value));
                         }
                         sql.push(')');
                     }
                     FilterValue::Range(min, max) => {
                         sql.push_str("? AND ?");
-                        params.push(Utils::value_to_libsql_value(min));
-                        params.push(Utils::value_to_libsql_value(max));
+                        params.push(Utils::value_to_postgres_param(min));
+                        params.push(Utils::value_to_postgres_param(max));
                     }
                 }
             }

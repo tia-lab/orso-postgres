@@ -43,4 +43,21 @@ impl Utils {
     pub fn unix_timestamp_millis_to_datetime(timestamp: i64) -> DateTime<Utc> {
         DateTime::from_timestamp_millis(timestamp).unwrap_or_else(|| Utc::now())
     }
+
+    /// Convert our Value type to PostgreSQL parameter
+    pub fn value_to_postgres_param(value: &crate::Value) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
+        match value {
+            crate::Value::Null => Box::new(Option::<String>::None),
+            crate::Value::Integer(i) => Box::new(*i),
+            crate::Value::Real(f) => Box::new(*f),
+            crate::Value::Text(s) => Box::new(s.clone()),
+            crate::Value::Blob(b) => Box::new(b.clone()),
+            crate::Value::Boolean(b) => Box::new(*b),
+        }
+    }
+
+    /// Convert PostgreSQL row value to our Value type
+    pub fn postgres_row_to_value(row: &tokio_postgres::Row, idx: usize) -> crate::Result<crate::Value> {
+        crate::Value::from_postgres_row(row, idx)
+    }
 }
