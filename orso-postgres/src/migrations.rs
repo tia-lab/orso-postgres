@@ -1,5 +1,5 @@
 // Migration system with zero-loss schema changes
-use crate::{Orso, database::Database, error::Error, traits::FieldType};
+use crate::{database::Database, error::Error, traits::FieldType, Orso};
 // use chrono::{DateTime, Utc}; // Reserved for future migration timestamp features
 // use serde::{Deserialize, Serialize}; // Reserved for future migration serialization
 use std::collections::HashMap;
@@ -191,17 +191,12 @@ where
     let table_exists = check_table_exists(db, table_name).await?;
 
     if !table_exists {
-        // Enable foreign key constraints for SQLite
-        db.conn
-            .execute("PRAGMA foreign_keys = ON", ())
-            .await
-            .map_err(|e| Error::DatabaseError(format!("Failed to enable foreign keys: {}", e)))?;
+        // PostgreSQL has foreign key constraints enabled by default (no action needed)
 
         // Create new table using custom SQL generation with table name override
         let create_sql = generate_migration_sql_with_custom_name::<T>(table_name);
 
-        db.conn
-            .execute(&create_sql, ())
+        db.execute(&create_sql, &[])
             .await
             .map_err(|e| Error::DatabaseError(format!("Failed to create table: {}", e)))?;
 
@@ -296,10 +291,10 @@ where
     {
         // Determine if this field should be unique
         let is_unique = unique_fields.contains(name);
-        
+
         // Determine if this is the primary key
         let is_primary_key = *name == primary_key_field;
-        
+
         // For compressed fields, we use BLOB type
         let sql_type = if *compressed {
             "BLOB".to_string()
@@ -315,8 +310,8 @@ where
             is_unique: is_unique || is_primary_key, // Primary keys are implicitly unique
             is_primary_key,
             foreign_key_reference: None, // Would need to add this to Orso trait
-            has_default: false, // Would depend on field type and attributes
-            is_compressed: *compressed, // Track compression status
+            has_default: false,          // Would depend on field type and attributes
+            is_compressed: *compressed,  // Track compression status
         });
     }
 
@@ -336,77 +331,68 @@ fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
 }
 
 async fn check_table_exists(db: &Database, table_name: &str) -> Result<bool, Error> {
-    let query = format!(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='{}'",
-        table_name
-    );
+    let query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1";
 
-    let mut rows = db
-        .conn
-        .query(&query, ())
+    let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+        vec![Box::new(table_name.to_string())];
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+        params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = db
+        .query(query, &param_refs)
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to check table existence: {}", e)))?;
 
-    match rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
-        Some(_) => Ok(true),
-        None => Ok(false),
-    }
+    Ok(!rows.is_empty())
 }
 
 async fn get_current_table_schema(
     db: &Database,
     table_name: &str,
 ) -> Result<Vec<ColumnInfo>, Error> {
-    // First get basic column info
-    let query = format!("PRAGMA table_info({})", table_name);
+    // Get PostgreSQL column information
+    let query = "
+        SELECT
+            column_name,
+            data_type,
+            is_nullable,
+            ordinal_position,
+            column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+        ORDER BY ordinal_position
+    ";
 
-    let mut rows = db
-        .conn
-        .query(&query, ())
+    let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+        vec![Box::new(table_name.to_string())];
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+        params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = db
+        .query(query, &param_refs)
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to get table info: {}", e)))?;
 
     let mut columns = Vec::new();
     let mut column_info_map = std::collections::HashMap::new();
 
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
-        let cid: i32 = row
-            .get(0)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let name: String = row
-            .get(1)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let type_name: String = row
-            .get(2)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let not_null: i32 = row
-            .get(3)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let default_value: Option<String> = row
-            .get(4)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let pk: i32 = row
-            .get(5)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
+    for row in rows.iter() {
+        let name: String = row.get(0);
+        let data_type: String = row.get(1);
+        let is_nullable: String = row.get(2);
+        let ordinal_position: i32 = row.get(3);
+        let column_default: Option<String> = row.get(4);
 
         let column_info = ColumnInfo {
             name: name.clone(),
-            sql_type: type_name.to_uppercase(),
-            nullable: not_null == 0,
-            position: cid,
-            is_unique: false, // Will be updated later
-            is_primary_key: pk != 0,
-            foreign_key_reference: None, // Will be updated later
-            has_default: default_value.is_some(),
-            is_compressed: type_name.to_uppercase() == "BLOB", // Heuristic: BLOB columns are probably compressed
+            sql_type: data_type.to_uppercase(),
+            nullable: is_nullable == "YES",
+            position: ordinal_position,
+            is_unique: false,            // Will be updated later from constraints
+            is_primary_key: false,       // Will be updated later from constraints
+            foreign_key_reference: None, // Will be updated later from constraints
+            has_default: column_default.is_some(),
+            is_compressed: data_type.to_uppercase() == "BYTEA", // PostgreSQL: BYTEA columns are probably compressed
         };
 
         column_info_map.insert(name.clone(), column_info.clone());
@@ -416,75 +402,74 @@ async fn get_current_table_schema(
     // Sort by position to maintain order
     columns.sort_by_key(|c| c.position);
 
-    // Get index information to determine unique constraints
-    let index_query = format!("PRAGMA index_list({})", table_name);
-    let mut index_rows = db
-        .conn
-        .query(&index_query, ())
+    // Get PostgreSQL constraint information (primary keys, unique constraints)
+    let constraint_query = "
+        SELECT
+            kcu.column_name,
+            tc.constraint_type
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+        WHERE tc.table_schema = 'public' AND tc.table_name = $1
+        AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+    ";
+
+    let constraint_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+        vec![Box::new(table_name.to_string())];
+    let constraint_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+        constraint_params.iter().map(|p| p.as_ref()).collect();
+
+    let constraint_rows = db
+        .query(constraint_query, &constraint_param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to get index list: {}", e)))?;
+        .map_err(|e| Error::DatabaseError(format!("Failed to get constraint info: {}", e)))?;
 
-    while let Some(row) = index_rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
-        let index_name: String = row
-            .get(1)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let is_unique_index: i32 = row
-            .get(2)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
+    // Process constraint information and update column flags
+    for row in constraint_rows {
+        let column_name: String = row.get(0);
+        let constraint_type: String = row.get(1);
 
-        if is_unique_index != 0 {
-            // Get column names for this unique index
-            let index_info_query = format!("PRAGMA index_info({})", index_name);
-            let mut index_info_rows = db
-                .conn
-                .query(&index_info_query, ())
-                .await
-                .map_err(|e| Error::DatabaseError(format!("Failed to get index info: {}", e)))?;
-
-            while let Some(info_row) = index_info_rows
-                .next()
-                .await
-                .map_err(|e| Error::DatabaseError(e.to_string()))?
-            {
-                let column_name: String = info_row
-                    .get(2)
-                    .map_err(|e| Error::DatabaseError(e.to_string()))?;
-
-                // Mark this column as unique
-                if let Some(column_info) = column_info_map.get_mut(&column_name) {
-                    column_info.is_unique = true;
-                }
+        if let Some(column_info) = column_info_map.get_mut(&column_name) {
+            match constraint_type.as_str() {
+                "PRIMARY KEY" => column_info.is_primary_key = true,
+                "UNIQUE" => column_info.is_unique = true,
+                _ => {}
             }
         }
     }
 
-    // Get foreign key information
-    let fk_query = format!("PRAGMA foreign_key_list({})", table_name);
-    let mut fk_rows = db
-        .conn
-        .query(&fk_query, ())
+    // Get PostgreSQL foreign key information
+    let fk_query = "
+        SELECT
+            kcu.column_name,
+            ccu.table_name AS referenced_table_name,
+            ccu.column_name AS referenced_column_name
+        FROM information_schema.referential_constraints rc
+        JOIN information_schema.key_column_usage kcu
+        ON rc.constraint_name = kcu.constraint_name
+        JOIN information_schema.constraint_column_usage ccu
+        ON rc.unique_constraint_name = ccu.constraint_name
+        WHERE kcu.table_schema = 'public' AND kcu.table_name = $1
+    ";
+
+    let fk_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+        vec![Box::new(table_name.to_string())];
+    let fk_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+        fk_params.iter().map(|p| p.as_ref()).collect();
+
+    let fk_rows = db
+        .query(fk_query, &fk_param_refs)
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to get foreign key list: {}", e)))?;
 
-    while let Some(row) = fk_rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
-        let column_name: String = row
-            .get(3)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
-        let ref_table: String = row
-            .get(2)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
+    for row in fk_rows {
+        let column_name: String = row.get(0);
+        let ref_table: String = row.get(1);
+        let ref_column: String = row.get(2);
 
         // Mark this column as having a foreign key reference
         if let Some(column_info) = column_info_map.get_mut(&column_name) {
-            column_info.foreign_key_reference = Some(ref_table);
+            column_info.foreign_key_reference = Some(format!("{}.{}", ref_table, ref_column));
         }
     }
 
@@ -608,8 +593,7 @@ async fn perform_zero_loss_migration(
     let temp_table_name = format!("{}_temp_{}", table_name, timestamp);
     let create_sql = generate_create_table_sql(&temp_table_name, &comparison.expected_columns);
 
-    db.conn
-        .execute(&create_sql, ())
+    db.execute(&create_sql, &[])
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to create temp table: {}", e)))?;
 
@@ -622,40 +606,31 @@ async fn perform_zero_loss_migration(
     );
 
     let _rows_affected = db
-        .conn
-        .execute(&copy_sql, ())
+        .execute(&copy_sql, &[])
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to migrate data: {}", e)))?;
 
     // Step 3: Rename original table to backup
     let rename_to_backup = format!("ALTER TABLE {} RENAME TO {}", table_name, backup_name);
-    db.conn
-        .execute(&rename_to_backup, ())
+    db.execute(&rename_to_backup, &[])
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to create backup: {}", e)))?;
 
     // Step 4: Rename new table to original name
     let rename_to_original = format!("ALTER TABLE {} RENAME TO {}", temp_table_name, table_name);
-    db.conn
-        .execute(&rename_to_original, ())
+    db.execute(&rename_to_original, &[])
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to rename new table: {}", e)))?;
 
     // Step 5: Verify migration success
     let verification_sql = format!("SELECT COUNT(*) FROM {}", table_name);
-    let mut rows = db
-        .conn
-        .query(&verification_sql, ())
+    let rows = db
+        .query(&verification_sql, &[])
         .await
         .map_err(|e| Error::DatabaseError(format!("Failed to verify migration: {}", e)))?;
 
-    let row_count: i64 = if let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
+    let row_count: i64 = if let Some(row) = rows.get(0) {
         row.get(0)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?
     } else {
         0
     };
@@ -787,7 +762,7 @@ async fn check_backups_retention(
 
         if should_delete {
             let drop_sql = format!("DROP TABLE IF EXISTS \"{}\"", old_table.name);
-            db.conn.execute(&drop_sql, ()).await.map_err(|e| {
+            db.execute(&drop_sql, &[]).await.map_err(|e| {
                 Error::DatabaseError(format!("Failed to drop old migration table: {}", e))
             })?;
 
@@ -815,26 +790,22 @@ async fn get_all_migration_tables(
     suffix: &str,
 ) -> Result<Vec<MigrationTableInfo>, Error> {
     let pattern = format!("{}_{}_", base_table, suffix);
-    let query = format!(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '{}%'",
-        pattern
-    );
+    let query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE $1";
 
-    let mut rows =
-        db.conn.query(&query, ()).await.map_err(|e| {
-            Error::DatabaseError(format!("Failed to query migration tables: {}", e))
-        })?;
+    let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+        vec![Box::new(format!("{}%", pattern))];
+    let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+        params.iter().map(|p| p.as_ref()).collect();
+
+    let rows = db
+        .query(query, &param_refs)
+        .await
+        .map_err(|e| Error::DatabaseError(format!("Failed to query migration tables: {}", e)))?;
 
     let mut migration_tables = Vec::new();
 
-    while let Some(row) = rows
-        .next()
-        .await
-        .map_err(|e| Error::DatabaseError(e.to_string()))?
-    {
-        let table_name: String = row
-            .get(0)
-            .map_err(|e| Error::DatabaseError(e.to_string()))?;
+    for row in rows {
+        let table_name: String = row.get(0);
 
         // Extract timestamp from table name like "table_migration_1234567890"
         let suffix_pattern = format!("_{}_", suffix);
