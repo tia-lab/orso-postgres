@@ -754,16 +754,48 @@ fn generate_type_conversion(source_type: &str, target_type: &str, column_name: &
         }
         ("BIGINT[]", "BYTEA") => {
             // Convert PostgreSQL BIGINT array to BYTEA for compression
-            // First convert array to JSON text, then to BYTEA
-            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+            // For now, convert to JSON and let the application handle compression on read/write
+            // This is a migration compatibility layer - new data will be properly compressed
+            format!(
+                "CASE
+                    WHEN \"{}\" IS NULL THEN NULL::BYTEA
+                    WHEN array_length(\"{}\", 1) IS NULL THEN NULL::BYTEA
+                    ELSE convert_to(array_to_json(\"{}\")::text, 'UTF8')
+                 END",
+                column_name, column_name, column_name
+            )
         }
         ("INTEGER[]", "BYTEA") => {
             // Convert PostgreSQL INTEGER array to BYTEA for compression
-            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+            format!(
+                "CASE
+                    WHEN \"{}\" IS NULL THEN NULL
+                    ELSE convert_to(array_to_json(\"{}\")::text, 'UTF8')
+                 END",
+                column_name, column_name
+            )
         }
         ("DOUBLE PRECISION[]", "BYTEA") => {
             // Convert PostgreSQL DOUBLE PRECISION array to BYTEA for compression
-            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+            format!(
+                "CASE
+                    WHEN \"{}\" IS NULL THEN NULL
+                    ELSE convert_to(array_to_json(\"{}\")::text, 'UTF8')
+                 END",
+                column_name, column_name
+            )
+        }
+        ("ARRAY", "BYTEA") => {
+            // Convert generic PostgreSQL ARRAY to BYTEA for compression
+            // This handles cases where PostgreSQL reports the type as just "ARRAY"
+            format!(
+                "CASE
+                    WHEN \"{}\" IS NULL THEN NULL::BYTEA
+                    WHEN array_length(\"{}\", 1) IS NULL THEN NULL::BYTEA
+                    ELSE convert_to(array_to_json(\"{}\")::text, 'UTF8')
+                 END",
+                column_name, column_name, column_name
+            )
         }
         _ => {
             // Default: try direct cast
@@ -792,7 +824,9 @@ fn generate_data_migration_sql(
                 select_columns.push(format!("\"{}\"", target_col.name));
             } else {
                 // Different types, need conversion
+                println!("DEBUG: Converting column '{}' from '{}' to '{}'", target_col.name, source_col.sql_type, target_col.sql_type);
                 let conversion = generate_type_conversion(&source_col.sql_type, &target_col.sql_type, &target_col.name);
+                println!("DEBUG: Generated conversion SQL: {}", conversion);
                 select_columns.push(conversion);
             }
         } else {
