@@ -3,6 +3,7 @@
 **/*.rs.bk
 *.pdb
 Cargo.lock
+orse-reference
 
 # Node.js & Dependencies  
 node_modules/
@@ -70,3 +71,4 @@ test_*.sqlite
 *.db
 QWEN*
 .qwen*
+CLAUDE*

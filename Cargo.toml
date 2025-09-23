@@ -1,5 +1,5 @@
 [workspace]
-members = ["orso", "orso-macros"]
+members = ["orso-postgres", "orso-postgres-macros"]
 resolver = "2"
 
 [workspace.package]
@@ -7,8 +7,8 @@ version = "0.0.2"
 edition = "2021"
 authors = ["https://github.com/tia-lab"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/tia-lab/orso"
-homepage = "https://github.com/tia-lab/orso"
+repository = "https://github.com/tia-lab/orso-postgres"
+homepage = "https://github.com/tia-lab/orso-postgres"
 
 [workspace.dependencies]
-orso-macros = { path = "./orso-macros" }
+orso-postgres-macros = { path = "./orso-postgres-macros" }

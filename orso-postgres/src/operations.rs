@@ -23,21 +23,24 @@ impl CrudOperations {
     {
         let map = model.to_map()?;
         let columns: Vec<String> = map.keys().cloned().collect();
-        let values: Vec<String> = map.keys().map(|_| "?".to_string()).collect();
+        let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("${}", i)).collect();
 
         let sql = format!(
             "INSERT INTO {} ({}) VALUES ({})",
             table_name,
             columns.join(", "),
-            values.join(", ")
+            placeholders.join(", ")
         );
 
         debug!(sql = %sql, "Executing SQL");
 
-        let params: Vec<libsql::Value> =
-            map.values().map(|v| T::value_to_libsql_value(v)).collect();
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> =
+            map.values().map(|v| T::value_to_postgres_param(v)).collect();
 
-        db.conn.execute(&sql, params).await?;
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        db.execute(&sql, &param_refs).await?;
 
         debug!(table = table_name, "Successfully created record");
         Ok(())

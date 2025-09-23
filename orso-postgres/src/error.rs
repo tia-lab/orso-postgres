@@ -6,7 +6,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum Error {
     /// Database connection error
-    Connection(libsql::Error),
+    Connection(String),
     /// SQL execution error
     Sql(String),
     /// Serialization/deserialization error
@@ -52,9 +52,15 @@ impl fmt::Display for Error {
     }
 }
 
-impl From<libsql::Error> for Error {
-    fn from(err: libsql::Error) -> Self {
+impl From<tokio_postgres::Error> for Error {
+    fn from(err: tokio_postgres::Error) -> Self {
         Error::Sql(err.to_string())
+    }
+}
+
+impl From<deadpool_postgres::PoolError> for Error {
+    fn from(err: deadpool_postgres::PoolError) -> Self {
+        Error::Connection(err.to_string())
     }
 }
 

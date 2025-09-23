@@ -1,24 +1,24 @@
 [package]
-name = "orso"
-description = "ORSO - A ORm for turSO and SQLite with zero-loss migrations"
+name = "orso-postgres"
+description = "ORSO PostgreSQL - A lightweight PostgreSQL ORM with compression and zero-loss migrations"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/orso"
-keywords = ["orm", "database", "sqlite", "turso", "async"]
+documentation = "https://docs.rs/orso-postgres"
+keywords = ["orm", "database", "postgresql", "postgres", "async"]
 categories = ["database"]
 readme = "../README.md"
 
 [dependencies]
-orso-macros = { path = "../orso-macros", version = "0.0.2" }
-libsql = { version = "0.9.23", optional = true }
-rusqlite = { version = "0.30", optional = true, features = ["bundled"] }
+orso-postgres-macros = { path = "../orso-postgres-macros", version = "0.0.2" }
+tokio-postgres = "0.7"
+deadpool-postgres = "0.12"
+postgres-types = { version = "0.2", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-dotenv = "0.15"
 thiserror = "1.0"
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -26,20 +26,11 @@ tracing = "0.1"
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 async-trait = "0.1"
-rand = "0.8"
 cydec = { git = "https://github.com/tia-lab/cydec" }
-
 
 [dev-dependencies]
 tracing-test = "0.2"
-hex = "0.4"
-
-
-[features]
-default = ["libsql"]
-libsql = ["dep:libsql"]
-sqlite = ["dep:rusqlite"]
 
 [lib]
-name = "orso"
+name = "orso_postgres"
 path = "src/lib.rs"

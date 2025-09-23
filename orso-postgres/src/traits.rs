@@ -1,6 +1,6 @@
 use crate::{Database, FilterOperator, Result};
 use chrono::{DateTime, Utc};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -536,24 +536,36 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
     }
 
     // Filter operations
-    fn build_filter_operator(filter: &FilterOperator) -> Result<(String, Vec<libsql::Value>)> {
+    fn build_filter_operator(
+        filter: &FilterOperator,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         crate::filters::FilterOperations::build_filter_operator(filter)
     }
 
-    fn build_filter(filter: &crate::Filter) -> Result<(String, Vec<libsql::Value>)> {
+    fn build_filter(
+        filter: &crate::Filter,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         crate::filters::FilterOperations::build_filter(filter)
     }
 
     // Conversion functions with default implementations
-    fn row_to_map(row: &libsql::Row) -> Result<HashMap<String, crate::Value>> {
+    fn row_to_map(row: &tokio_postgres::Row) -> Result<HashMap<String, crate::Value>> {
         crate::operations::CrudOperations::row_to_map(row)
     }
 
-    fn value_to_libsql_value(value: &crate::Value) -> libsql::Value {
-        crate::Utils::value_to_libsql_value(value)
+    fn value_to_postgres_param(
+        value: &crate::Value,
+    ) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
+        value.to_postgres_param()
     }
 
-    fn libsql_value_to_value(value: &libsql::Value) -> crate::Value {
-        crate::Utils::libsql_value_to_value(value)
+    fn value_from_postgres_row(row: &tokio_postgres::Row, idx: usize) -> Result<crate::Value> {
+        crate::Value::from_postgres_row(row, idx)
     }
 }

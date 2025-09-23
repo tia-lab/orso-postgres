@@ -1,9 +1,9 @@
 [package]
-name = "orso-macros"
+name = "orso-postgres-macros"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "ORSO procedural macros"
+description = "ORSO PostgreSQL procedural macros"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

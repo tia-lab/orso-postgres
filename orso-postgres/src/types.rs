@@ -208,6 +208,52 @@ impl std::fmt::Display for Operator {
     }
 }
 
+impl Value {
+    pub fn to_postgres_param(&self) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
+        match self {
+            Value::Null => Box::new(Option::<String>::None),
+            Value::Integer(i) => Box::new(*i),
+            Value::Real(f) => Box::new(*f),
+            Value::Text(s) => Box::new(s.clone()),
+            Value::Blob(b) => Box::new(b.clone()),
+            Value::Boolean(b) => Box::new(*b),
+        }
+    }
+
+    pub fn from_postgres_row(row: &tokio_postgres::Row, idx: usize) -> crate::Result<Self> {
+        let column = &row.columns()[idx];
+        let type_name = column.type_().name();
+
+        match type_name {
+            "int8" | "bigint" => {
+                let val: Option<i64> = row.try_get(idx)?;
+                Ok(val.map(Value::Integer).unwrap_or(Value::Null))
+            },
+            "float8" | "double precision" => {
+                let val: Option<f64> = row.try_get(idx)?;
+                Ok(val.map(Value::Real).unwrap_or(Value::Null))
+            },
+            "text" | "varchar" => {
+                let val: Option<String> = row.try_get(idx)?;
+                Ok(val.map(Value::Text).unwrap_or(Value::Null))
+            },
+            "bytea" => {
+                let val: Option<Vec<u8>> = row.try_get(idx)?;
+                Ok(val.map(Value::Blob).unwrap_or(Value::Null))
+            },
+            "bool" | "boolean" => {
+                let val: Option<bool> = row.try_get(idx)?;
+                Ok(val.map(Value::Boolean).unwrap_or(Value::Null))
+            },
+            _ => {
+                // Try as string for unknown types
+                let val: Option<String> = row.try_get(idx)?;
+                Ok(val.map(Value::Text).unwrap_or(Value::Null))
+            }
+        }
+    }
+}
+
 pub fn deserialize_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
