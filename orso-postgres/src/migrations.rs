@@ -690,7 +690,14 @@ fn generate_create_table_sql(table_name: &str, columns: &[ColumnInfo]) -> String
             def.push_str(" PRIMARY KEY");
         }
 
-        // Column defaults are now handled by the macro's column definition
+        // Add default values for columns that need them
+        if column.has_default {
+            if column.is_primary_key && column.sql_type == "TEXT" {
+                def.push_str(" DEFAULT gen_random_uuid()");
+            } else if column.name == "created_at" || column.name == "updated_at" {
+                def.push_str(" DEFAULT NOW()");
+            }
+        }
 
         column_defs.push(def);
     }

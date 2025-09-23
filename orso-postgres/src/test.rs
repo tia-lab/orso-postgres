@@ -148,6 +148,9 @@ mod tests {
         let config = get_test_db_config();
         let db = Database::init(config).await?;
 
+        // Clean up any existing test data
+        cleanup_test_table(&db, "test_compressed_001").await?;
+
         // Create table
         use orso::{migration, Migrations};
         Migrations::init(&db, &[migration!(TestCompressed)]).await?;
@@ -235,6 +238,9 @@ mod tests {
         // Create PostgreSQL test database
         let config = get_test_db_config();
         let db = Database::init(config).await?;
+
+        // Clean up any existing test data
+        cleanup_test_table(&db, "test_compressed_001").await?;
 
         // Create table
         use orso::{migration, Migrations};
@@ -1614,6 +1620,9 @@ Test completed successfully!"
         let config = get_test_db_config();
         let db = Database::init(config).await?;
 
+        // Clean up any existing test data
+        cleanup_test_table(&db, "debug_compressed_005").await?;
+
         // Create table
         use orso::{migration, Migrations};
         Migrations::init(&db, &[migration!(DebugCompressed)]).await?;
@@ -1651,6 +1660,9 @@ Test completed successfully!"
         // Create PostgreSQL test database
         let config = get_test_db_config();
         let db = Database::init(config).await?;
+
+        // Clean up any existing test data
+        cleanup_test_table(&db, "debug_compressed_005").await?;
 
         // Create table
         use orso::{migration, Migrations};
