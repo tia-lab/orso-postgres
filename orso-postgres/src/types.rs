@@ -238,6 +238,10 @@ impl Value {
                 let val: Option<i64> = row.try_get(idx)?;
                 Ok(val.map(Value::Integer).unwrap_or(Value::Null))
             },
+            "int4" | "integer" => {
+                let val: Option<i32> = row.try_get(idx)?;
+                Ok(val.map(|i| Value::Integer(i as i64)).unwrap_or(Value::Null))
+            },
             "float8" | "double precision" => {
                 let val: Option<f64> = row.try_get(idx)?;
                 Ok(val.map(Value::Real).unwrap_or(Value::Null))
