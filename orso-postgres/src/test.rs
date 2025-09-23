@@ -2042,6 +2042,17 @@ Test completed successfully!"
 
     #[tokio::test]
     async fn test_arrays_vs_compression() -> Result<(), Box<dyn std::error::Error>> {
+        // DEBUG: Check field compression detection
+        let field_names = TestArraysVsCompressed::field_names();
+        let field_types = TestArraysVsCompressed::field_types();
+        let compressed_flags = TestArraysVsCompressed::field_compressed();
+        println!("=== FIELD DEBUG ===");
+        for (i, name) in field_names.iter().enumerate() {
+            println!("  {}: {} -> {:?} -> compressed: {}",
+                    i, name, field_types.get(i), compressed_flags.get(i).unwrap_or(&false));
+        }
+        println!("==================");
+
         let config = get_test_db_config();
         let db = Database::init(config).await?;
 
@@ -2079,6 +2090,21 @@ Test completed successfully!"
             compressed_f64: test_f64_data.clone(),
             name: "Array vs Compression Test".to_string(),
         };
+
+        // DEBUG: Check to_map conversion
+        let map = test_record.to_map()?;
+        println!("=== TO_MAP DEBUG ===");
+        for (k, v) in &map {
+            match v {
+                Value::BigIntArray(arr) => println!("  {}: BigIntArray({} elements)", k, arr.len()),
+                Value::IntegerArray(arr) => println!("  {}: IntegerArray({} elements)", k, arr.len()),
+                Value::NumericArray(arr) => println!("  {}: NumericArray({} elements)", k, arr.len()),
+                Value::Blob(b) => println!("  {}: Blob({} bytes)", k, b.len()),
+                Value::Text(s) => println!("  {}: Text({})", k, if s.len() > 50 { format!("{}...", &s[..50]) } else { s.clone() }),
+                _ => println!("  {}: {:?}", k, v),
+            }
+        }
+        println!("====================");
 
         println!("Inserting test data (10 elements each)...");
         test_record.insert(&db).await?;

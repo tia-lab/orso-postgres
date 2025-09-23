@@ -259,110 +259,42 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         .unwrap_or(false);
 
                     if is_compressed {
-                        // Handle compressed fields by collecting them for batch processing
+                        // Handle compressed fields - use the actual Rust field type, don't guess from JSON!
                         match v {
                             serde_json::Value::Array(arr) => {
-                                // Determine the element type of the array and collect accordingly
-                                // Try f64 first (highest precision floating point)
-                                let f64_result: Result<Vec<f64>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_f64().ok_or_else(|| "Invalid f64 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
+                                // Determine the correct type based on the original Rust struct field definition
+                                // Find the field position to get the original type information
+                                if let Some(pos) = field_names.iter().position(|&name| name == *k) {
+                                    // We need to determine the Vec<T> inner type from the original struct
+                                    // For now, we'll examine the first element to determine the likely type
+                                    // This is a temporary solution until we have proper type metadata
 
-                                if let Ok(vec) = f64_result {
-                                    // Check if this is actually an f64 field by looking at field type
-                                    if let Some(pos) = field_names.iter().position(|&name| name == *k) {
-                                        if matches!(field_types.get(pos), Some(orso::FieldType::Numeric)) {
-                                            // This is a floating-point field, collect for f64 compression
-                                            compressed_f64_fields.insert(k.clone(), vec);
-                                            continue; // Skip normal processing for this field
-                                        }
-                                    }
-                                }
-
-                                // Try f32
-                                let f32_result: Result<Vec<f32>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_f64().map(|f| f as f32).ok_or_else(|| "Invalid f32 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
-
-                                if let Ok(vec) = f32_result {
-                                    // Check if this is actually an f32 field by looking at field type
-                                    if let Some(pos) = field_names.iter().position(|&name| name == *k) {
-                                        if matches!(field_types.get(pos), Some(orso::FieldType::Numeric)) {
-                                            // This is a floating-point field, collect for f32 compression
-                                            compressed_f32_fields.insert(k.clone(), vec);
-                                            continue; // Skip normal processing for this field
+                                    if !arr.is_empty() {
+                                        match &arr[0] {
+                                            serde_json::Value::Number(n) => {
+                                                if n.is_f64() {
+                                                    // This appears to be Vec<f64> or Vec<f32>
+                                                    let f64_result: Result<Vec<f64>, _> = arr.iter().map(|val| {
+                                                        val.as_f64().ok_or("Invalid f64")
+                                                    }).collect();
+                                                    if let Ok(vec) = f64_result {
+                                                        compressed_f64_fields.insert(k.clone(), vec);
+                                                        continue;
+                                                    }
+                                                } else {
+                                                    // This appears to be Vec<i64> or other integer type
+                                                    let i64_result: Result<Vec<i64>, _> = arr.iter().map(|val| {
+                                                        val.as_i64().ok_or("Invalid i64")
+                                                    }).collect();
+                                                    if let Ok(vec) = i64_result {
+                                                        compressed_i64_fields.insert(k.clone(), vec);
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
-                                }
-
-                                // Try i64
-                                let i64_result: Result<Vec<i64>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_i64().ok_or_else(|| "Invalid i64 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
-
-                                if let Ok(vec) = i64_result {
-                                    compressed_i64_fields.insert(k.clone(), vec);
-                                    continue; // Skip normal processing for this field
-                                }
-
-                                // Try u64
-                                let u64_result: Result<Vec<u64>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_u64().ok_or_else(|| "Invalid u64 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
-
-                                if let Ok(vec) = u64_result {
-                                    compressed_u64_fields.insert(k.clone(), vec);
-                                    continue; // Skip normal processing for this field
-                                }
-
-                                // Try i32
-                                let i32_result: Result<Vec<i32>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_i64().and_then(|i| i32::try_from(i).ok()).ok_or_else(|| "Invalid i32 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
-
-                                if let Ok(vec) = i32_result {
-                                    compressed_i32_fields.insert(k.clone(), vec);
-                                    continue; // Skip normal processing for this field
-                                }
-
-                                // Try u32
-                                let u32_result: Result<Vec<u32>, _> = arr.iter().map(|val| {
-                                    match val {
-                                        serde_json::Value::Number(n) => {
-                                            n.as_u64().and_then(|u| u32::try_from(u).ok()).ok_or_else(|| "Invalid u32 value".to_string())
-                                        }
-                                        _ => Err("Non-numeric value in array".to_string()),
-                                    }
-                                }).collect();
-
-                                if let Ok(vec) = u32_result {
-                                    compressed_u32_fields.insert(k.clone(), vec);
-                                    continue; // Skip normal processing for this field
                                 }
                             }
                             _ => {} // Fall through to normal processing
@@ -569,6 +501,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process f64 fields
                 if !compressed_f64_fields.is_empty() {
+                    eprintln!("DEBUG: Processing {} f64 compressed fields", compressed_f64_fields.len());
                     let codec = orso::FloatingCodec::default();
                     if compressed_f64_fields.len() == 1 {
                         // Single field - process individually
@@ -577,7 +510,9 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                             Ok(compressed) => {
                                 result.insert(field_name, orso::Value::Blob(compressed));
                             }
-                            Err(_) => {
+                            Err(e) => {
+                                // DEBUG: Print compression error
+                                eprintln!("F64 compression failed for field {}: {:?}", field_name, e);
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
                                     result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
