@@ -302,15 +302,26 @@ where
             field_type_to_sqlite_type(field_type)
         };
 
+        // Determine if this field has a default value
+        // Primary key TEXT fields have gen_random_uuid() default
+        // created_at and updated_at fields have NOW() default
+        let has_default = if is_primary_key && sql_type == "TEXT" {
+            true // PRIMARY KEY TEXT fields have DEFAULT gen_random_uuid()
+        } else if *name == "created_at" || *name == "updated_at" {
+            true // Timestamp fields have DEFAULT NOW()
+        } else {
+            false
+        };
+
         columns.push(ColumnInfo {
             name: name.to_string(),
             sql_type,
-            nullable: *nullable,
+            nullable: if is_primary_key { false } else { *nullable }, // PRIMARY KEY fields are always NOT NULL
             position: i as i32,
             is_unique: is_unique || is_primary_key, // Primary keys are implicitly unique
             is_primary_key,
             foreign_key_reference: None, // Would need to add this to Orso trait
-            has_default: false,          // Would depend on field type and attributes
+            has_default,
             is_compressed: *compressed,  // Track compression status
         });
     }
@@ -387,7 +398,7 @@ async fn get_current_table_schema(
             name: name.clone(),
             sql_type: data_type.to_uppercase(),
             nullable: is_nullable == "YES",
-            position: ordinal_position,
+            position: ordinal_position - 1, // Convert from 1-indexed to 0-indexed
             is_unique: false,            // Will be updated later from constraints
             is_primary_key: false,       // Will be updated later from constraints
             foreign_key_reference: None, // Will be updated later from constraints
@@ -431,7 +442,10 @@ async fn get_current_table_schema(
 
         if let Some(column_info) = column_info_map.get_mut(&column_name) {
             match constraint_type.as_str() {
-                "PRIMARY KEY" => column_info.is_primary_key = true,
+                "PRIMARY KEY" => {
+                    column_info.is_primary_key = true;
+                    column_info.is_unique = true; // PRIMARY KEY implies UNIQUE
+                }
                 "UNIQUE" => column_info.is_unique = true,
                 _ => {}
             }
@@ -476,6 +490,7 @@ async fn get_current_table_schema(
     // Update the columns vector with the enhanced information
     for column in &mut columns {
         if let Some(updated_info) = column_info_map.get(&column.name) {
+            column.is_primary_key = updated_info.is_primary_key;
             column.is_unique = updated_info.is_unique;
             column.foreign_key_reference = updated_info.foreign_key_reference.clone();
         }

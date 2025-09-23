@@ -13,7 +13,7 @@ mod tests {
         let db_name = "postgres";
 
         let host = "localhost";
-        let port = std::env::var("TEST_DB_PORT").unwrap_or("1432".to_string());
+        let port = std::env::var("TEST_DB_PORT").unwrap_or("1332".to_string());
         let user = std::env::var("TEST_DB_USER").unwrap_or("postgres".to_string());
         let password = std::env::var("TEST_DB_PASSWORD").unwrap_or("".to_string());
 
@@ -31,7 +31,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("test_compressed")]
+    #[orso_table("test_compressed_001")]
     struct TestCompressed {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -44,7 +44,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("test_users")]
+    #[orso_table("test_users_002")]
     struct TestUser {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -64,7 +64,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("test_multi_compressed")]
+    #[orso_table("test_multi_compressed_003")]
     struct TestUserWithMultipleCompressedFields {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[derive(Orso, serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-    #[orso_table("field_type_debug")]
+    #[orso_table("field_type_debug_004")]
     struct FieldTypeDebug {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("debug_compressed")]
+    #[orso_table("debug_compressed_005")]
     struct DebugCompressed {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -597,7 +597,7 @@ mod tests {
         use orso::{migration, Database, DatabaseConfig, Migrations, Orso};
         use serde::{Deserialize, Serialize};
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("migration_test")]
+        #[orso_table("migration_test_006")]
         struct MigrationTest {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -636,7 +636,7 @@ mod tests {
 
         // First, create a table without unique constraints
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("migration_test")]
+        #[orso_table("migration_test_007")]
         struct MigrationTestInitial {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -651,7 +651,7 @@ mod tests {
 
         // Now, create a new version with a unique constraint
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("migration_test")]
+        #[orso_table("migration_test_008")]
         struct MigrationTestWithUnique {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -711,7 +711,7 @@ mod tests {
 
         // First, create a table without compression
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("compression_migration_test")]
+        #[orso_table("compression_migration_test_009")]
         struct CompressionTestInitial {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -736,7 +736,7 @@ mod tests {
 
         // Now, create a new version with compression
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("compression_migration_test")]
+        #[orso_table("compression_migration_test_010")]
         struct CompressionTestWithCompression {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -771,7 +771,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("id_generation_test")]
+    #[orso_table("id_generation_test_011")]
     struct IdGenerationTest {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -875,7 +875,7 @@ mod tests {
     #[tokio::test]
     async fn simple_compression_test() -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("compression_test")]
+        #[orso_table("compression_test_012")]
         struct CompressionTest {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -1024,7 +1024,7 @@ Test completed successfully!"
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("batch_compression_test")]
+        #[orso_table("batch_compression_test_013")]
         struct BatchCompressionTest {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -1366,7 +1366,7 @@ Test completed successfully!"
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("batch_operations_test")]
+        #[orso_table("batch_operations_test_014")]
         struct BatchOperationsTest {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -1684,7 +1684,7 @@ Test completed successfully!"
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("collect_vs_vec_test")]
+    #[orso_table("collect_vs_vec_test_015")]
     struct CollectVsVecTest {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -1760,7 +1760,7 @@ Test completed successfully!"
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("allocator_test")]
+    #[orso_table("allocator_test_016")]
     struct AllocatorTest {
         #[orso_column(primary_key)]
         id: Option<String>,

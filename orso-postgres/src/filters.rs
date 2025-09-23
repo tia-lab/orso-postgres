@@ -425,7 +425,7 @@ impl FilterOperations {
                 match &filter.value {
                     FilterValue::Single(value) => {
                         sql.push('?');
-                        params.push(Utils::value_to_postgres_param(value));
+                        params.push(value.to_postgres_param());
                     }
                     FilterValue::Multiple(values) => {
                         sql.push('(');
@@ -434,14 +434,14 @@ impl FilterOperations {
                                 sql.push_str(", ");
                             }
                             sql.push('?');
-                            params.push(Utils::value_to_postgres_param(value));
+                            params.push(value.to_postgres_param());
                         }
                         sql.push(')');
                     }
                     FilterValue::Range(min, max) => {
                         sql.push_str("? AND ?");
-                        params.push(Utils::value_to_postgres_param(min));
-                        params.push(Utils::value_to_postgres_param(max));
+                        params.push(min.to_postgres_param());
+                        params.push(max.to_postgres_param());
                     }
                 }
             }

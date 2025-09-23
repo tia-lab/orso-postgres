@@ -36,7 +36,7 @@ impl CrudOperations {
 
         let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
             .values()
-            .map(|v| T::value_to_postgres_param(v))
+            .map(|v| v.to_postgres_param())
             .collect();
 
         let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
@@ -115,7 +115,7 @@ impl CrudOperations {
         for (param_index, column) in unique_columns.iter().enumerate() {
             if let Some(value) = map.get(*column) {
                 where_conditions.push(format!("{column} = ${}", param_index + 1));
-                where_params.push(T::value_to_postgres_param(value));
+                where_params.push(value.to_postgres_param());
             }
         }
 
@@ -183,7 +183,7 @@ impl CrudOperations {
 
             let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
                 .values()
-                .map(|v| T::value_to_postgres_param(v))
+                .map(|v| v.to_postgres_param())
                 .collect();
 
             let sql = format!(
@@ -740,7 +740,7 @@ impl CrudOperations {
             .filter(|(k, _)| {
                 k != &pk_field && !(updated_at_field.is_some() && k == &updated_at_field.unwrap())
             })
-            .map(|(_, v)| T::value_to_postgres_param(v))
+            .map(|(_, v)| v.to_postgres_param())
             .collect();
         params.push(Box::new(id.clone()));
 
@@ -793,7 +793,7 @@ impl CrudOperations {
                         set_clauses.push(format!("{} = NOW()", k));
                     } else {
                         set_clauses.push(format!("{} = ${}", k, param_index));
-                        params.push(T::value_to_postgres_param(v));
+                        params.push(v.to_postgres_param());
                         param_index += 1;
                     }
                 }
@@ -937,7 +937,7 @@ impl CrudOperations {
 
             let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
                 .values()
-                .map(|v| T::value_to_postgres_param(v))
+                .map(|v| v.to_postgres_param())
                 .collect();
 
             // Build UPDATE SET clause for conflict resolution
