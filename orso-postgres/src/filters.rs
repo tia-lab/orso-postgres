@@ -363,8 +363,19 @@ impl FilterOperations {
         String,
         Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
     )> {
+        let mut param_counter = 1;
+        Self::build_filter_operator_with_counter(filter, &mut param_counter)
+    }
+
+    fn build_filter_operator_with_counter(
+        filter: &FilterOperator,
+        param_counter: &mut usize,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
         match filter {
-            FilterOperator::Single(filter) => Self::build_filter(filter),
+            FilterOperator::Single(filter) => Self::build_filter_with_counter(filter, param_counter),
             FilterOperator::And(filters) => {
                 let mut sql = String::new();
                 let mut params = Vec::new();
@@ -373,7 +384,7 @@ impl FilterOperations {
                     if i > 0 {
                         sql.push_str(" AND ");
                     }
-                    let (filter_sql, filter_params) = Self::build_filter_operator(filter)?;
+                    let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
                     sql.push_str(&filter_sql);
                     params.extend(filter_params);
                 }
@@ -388,7 +399,7 @@ impl FilterOperations {
                     if i > 0 {
                         sql.push_str(" OR ");
                     }
-                    let (filter_sql, filter_params) = Self::build_filter_operator(filter)?;
+                    let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
                     sql.push_str(&filter_sql);
                     params.extend(filter_params);
                 }
@@ -396,7 +407,7 @@ impl FilterOperations {
                 Ok((sql, params))
             }
             FilterOperator::Not(filter) => {
-                let (filter_sql, filter_params) = Self::build_filter_operator(filter)?;
+                let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
                 Ok((format!("NOT ({filter_sql})"), filter_params))
             }
             FilterOperator::Custom(condition) => Ok((condition.clone(), vec![])),
@@ -406,6 +417,17 @@ impl FilterOperations {
     /// Build SQL for an individual filter
     pub fn build_filter(
         filter: &Filter,
+    ) -> Result<(
+        String,
+        Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
+    )> {
+        let mut param_counter = 1;
+        Self::build_filter_with_counter(filter, &mut param_counter)
+    }
+
+    fn build_filter_with_counter(
+        filter: &Filter,
+        param_counter: &mut usize,
     ) -> Result<(
         String,
         Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
@@ -424,7 +446,8 @@ impl FilterOperations {
                 sql.push_str(&format!("{} {} ", filter.column, filter.operator));
                 match &filter.value {
                     FilterValue::Single(value) => {
-                        sql.push('?');
+                        sql.push_str(&format!("${}", param_counter));
+                        *param_counter += 1;
                         params.push(value.to_postgres_param());
                     }
                     FilterValue::Multiple(values) => {
@@ -433,13 +456,15 @@ impl FilterOperations {
                             if i > 0 {
                                 sql.push_str(", ");
                             }
-                            sql.push('?');
+                            sql.push_str(&format!("${}", param_counter));
+                            *param_counter += 1;
                             params.push(value.to_postgres_param());
                         }
                         sql.push(')');
                     }
                     FilterValue::Range(min, max) => {
-                        sql.push_str("? AND ?");
+                        sql.push_str(&format!("${} AND ${}", param_counter, *param_counter + 1));
+                        *param_counter += 2;
                         params.push(min.to_postgres_param());
                         params.push(max.to_postgres_param());
                     }

@@ -221,9 +221,17 @@ impl Value {
                     // Use i64 for BIGINT columns
                     Box::new(*i)
                 }
-            },
+            }
             Value::Real(f) => Box::new(*f),
-            Value::Text(s) => Box::new(s.clone()),
+            Value::Text(s) => {
+                // Check if this is a timestamp string that should be converted
+                if let Ok(dt) = crate::Utils::parse_timestamp(s) {
+                    // Convert to SystemTime for PostgreSQL
+                    Box::new(std::time::SystemTime::from(dt))
+                } else {
+                    Box::new(s.clone())
+                }
+            },
             Value::Blob(b) => Box::new(b.clone()),
             Value::Boolean(b) => Box::new(*b),
         }
@@ -237,27 +245,37 @@ impl Value {
             "int8" | "bigint" => {
                 let val: Option<i64> = row.try_get(idx)?;
                 Ok(val.map(Value::Integer).unwrap_or(Value::Null))
-            },
+            }
             "int4" | "integer" => {
                 let val: Option<i32> = row.try_get(idx)?;
                 Ok(val.map(|i| Value::Integer(i as i64)).unwrap_or(Value::Null))
-            },
+            }
             "float8" | "double precision" => {
                 let val: Option<f64> = row.try_get(idx)?;
                 Ok(val.map(Value::Real).unwrap_or(Value::Null))
-            },
+            }
             "text" | "varchar" => {
                 let val: Option<String> = row.try_get(idx)?;
                 Ok(val.map(Value::Text).unwrap_or(Value::Null))
-            },
+            }
             "bytea" => {
                 let val: Option<Vec<u8>> = row.try_get(idx)?;
                 Ok(val.map(Value::Blob).unwrap_or(Value::Null))
-            },
+            }
             "bool" | "boolean" => {
                 let val: Option<bool> = row.try_get(idx)?;
                 Ok(val.map(Value::Boolean).unwrap_or(Value::Null))
-            },
+            }
+            "timestamp" | "timestamptz" => {
+                // Handle PostgreSQL timestamps using SystemTime, then convert to UTC RFC3339
+                let val: Option<std::time::SystemTime> = row.try_get(idx)?;
+                Ok(val
+                    .map(|st| {
+                        let datetime = chrono::DateTime::<chrono::Utc>::from(st);
+                        Value::Text(crate::Utils::create_timestamp(datetime))
+                    })
+                    .unwrap_or(Value::Null))
+            }
             _ => {
                 // Try as string for unknown types
                 let val: Option<String> = row.try_get(idx)?;

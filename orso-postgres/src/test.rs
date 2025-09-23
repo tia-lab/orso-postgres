@@ -30,6 +30,14 @@ mod tests {
         DatabaseConfig::new(connection_string).with_pool_size(10)
     }
 
+    /// Clean up test table to ensure isolated test runs
+    async fn cleanup_test_table(db: &Database, table_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Drop table if it exists to ensure clean test state
+        let drop_sql = format!("DROP TABLE IF EXISTS {} CASCADE", table_name);
+        let _ = db.execute(&drop_sql, &[]).await; // Ignore errors if table doesn't exist
+        Ok(())
+    }
+
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
     #[orso_table("test_compressed_001")]
     struct TestCompressed {
@@ -171,6 +179,9 @@ mod tests {
         // Create PostgreSQL test database
         let config = get_test_db_config();
         let db = Database::init(config).await?;
+
+        // Clean up any existing test data
+        cleanup_test_table(&db, "test_compressed_001").await?;
 
         // Create table
         use orso::{migration, Migrations};
@@ -351,6 +362,9 @@ mod tests {
         // Create PostgreSQL test database
         let config = get_test_db_config();
         let db = Database::init(config).await?;
+
+        // Clean up any existing test data
+        cleanup_test_table(&db, "test_users_002").await?;
 
         // Create table
         use orso::{migration, Migrations};
@@ -636,7 +650,7 @@ mod tests {
 
         // First, create a table without unique constraints
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("migration_test_007")]
+        #[orso_table("migration_test_constraint")]
         struct MigrationTestInitial {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -649,9 +663,9 @@ mod tests {
         use orso::{migration, Migrations};
         Migrations::init(&db, &[migration!(MigrationTestInitial)]).await?;
 
-        // Now, create a new version with a unique constraint
+        // Now, create a new version with a unique constraint (SAME TABLE NAME)
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("migration_test_008")]
+        #[orso_table("migration_test_constraint")]
         struct MigrationTestWithUnique {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -711,7 +725,7 @@ mod tests {
 
         // First, create a table without compression
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("compression_migration_test_009")]
+        #[orso_table("compression_migration_test")]
         struct CompressionTestInitial {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -736,7 +750,7 @@ mod tests {
 
         // Now, create a new version with compression
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-        #[orso_table("compression_migration_test_010")]
+        #[orso_table("compression_migration_test")]
         struct CompressionTestWithCompression {
             #[orso_column(primary_key)]
             id: Option<String>,
@@ -771,7 +785,7 @@ mod tests {
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
-    #[orso_table("id_generation_test_011")]
+    #[orso_table("id_generation_test_010")]
     struct IdGenerationTest {
         #[orso_column(primary_key)]
         id: Option<String>,
@@ -784,6 +798,9 @@ mod tests {
         // Create PostgreSQL test database
         let config = get_test_db_config();
         let db = Database::init(config).await?;
+
+        // Clean up any existing test data
+        cleanup_test_table(&db, "id_generation_test_010").await?;
 
         // Create table
         Migrations::init(&db, &[migration!(IdGenerationTest)]).await?;
@@ -814,6 +831,15 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("id_generation_debug_011")]
+    struct IdGenerationDebugTest {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+        name: String,
+        age: i32,
+    }
+
     #[tokio::test]
     async fn test_id_generation_debug() -> Result<(), Box<dyn std::error::Error>> {
         // Create PostgreSQL test database
@@ -821,7 +847,7 @@ mod tests {
         let db = Database::init(config).await?;
 
         // Create table
-        Migrations::init(&db, &[migration!(IdGenerationTest)]).await?;
+        Migrations::init(&db, &[migration!(IdGenerationDebugTest)]).await?;
 
         // Let's check if the table was created properly
         let schema_sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'id_generation_test'";
@@ -833,7 +859,7 @@ mod tests {
         }
 
         // Create record with None ID
-        let record = IdGenerationTest {
+        let record = IdGenerationDebugTest {
             id: None,
             name: "Debug Test".to_string(),
             age: 30,
@@ -843,7 +869,7 @@ mod tests {
         record.insert(&db).await?;
 
         // Check what was actually inserted
-        let all_records = IdGenerationTest::find_all(&db).await?;
+        let all_records = IdGenerationDebugTest::find_all(&db).await?;
         println!("Records found: {}", all_records.len());
 
         for record in &all_records {

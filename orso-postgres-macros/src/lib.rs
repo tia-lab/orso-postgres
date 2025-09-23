@@ -1385,6 +1385,7 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
                 "u32" | "u16" | "u8" => "INTEGER".to_string(),
                 "f64" | "f32" => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
                 "bool" => "BOOLEAN".to_string(),         // PostgreSQL native BOOLEAN type
+                "DateTime" => "TIMESTAMP WITHOUT TIME ZONE".to_string(), // UTC timestamp without timezone
                 "Option" => {
                     // Handle Option<T> types
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -1398,6 +1399,15 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
             };
         }
     }
+
+    // Handle full path types like chrono::DateTime<chrono::Utc>
+    if let syn::Type::Path(type_path) = rust_type {
+        let path_str = quote::quote!(#type_path).to_string();
+        if path_str.contains("DateTime") && path_str.contains("Utc") {
+            return "TIMESTAMP WITHOUT TIME ZONE".to_string();
+        }
+    }
+
     "TEXT".to_string()
 }
 

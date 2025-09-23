@@ -337,7 +337,7 @@ fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
         FieldType::Numeric => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
         FieldType::Boolean => "BOOLEAN".to_string(),  // PostgreSQL native BOOLEAN
         FieldType::JsonB => "JSONB".to_string(),      // PostgreSQL native JSONB
-        FieldType::Timestamp => "TIMESTAMP WITH TIME ZONE".to_string(), // PostgreSQL timestamp with timezone
+        FieldType::Timestamp => "TIMESTAMP WITHOUT TIME ZONE".to_string(), // PostgreSQL UTC timestamp without timezone
     }
 }
 
