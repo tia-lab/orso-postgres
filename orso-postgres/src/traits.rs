@@ -12,6 +12,10 @@ pub enum FieldType {
     Boolean,
     JsonB,
     Timestamp,
+    // Array types for PostgreSQL native arrays
+    IntegerArray,  // INTEGER[]
+    BigIntArray,   // BIGINT[]
+    NumericArray,  // DOUBLE PRECISION[]
 }
 
 #[allow(async_fn_in_trait)]

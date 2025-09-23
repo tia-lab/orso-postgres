@@ -62,6 +62,8 @@ impl Utils {
             crate::Value::Text(s) => Box::new(s.clone()),
             crate::Value::Blob(b) => Box::new(b.clone()),
             crate::Value::Boolean(b) => Box::new(*b),
+            crate::Value::IntegerArray(arr) => Box::new(arr.clone()),
+            crate::Value::NumericArray(arr) => Box::new(arr.clone()),
         }
     }
 

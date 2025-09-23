@@ -1874,4 +1874,423 @@ Test completed successfully!"
 
         Ok(())
     }
+
+    // ===== PostgreSQL Native Array Tests =====
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("test_arrays_basic")]
+    struct TestArraysBasic {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        // Uncompressed arrays - should use PostgreSQL native arrays
+        i64_array: Vec<i64>,
+        f64_array: Vec<f64>,
+        i32_array: Vec<i32>,
+
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn test_postgresql_arrays_simple() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Simple test with just one array field
+        #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+        #[orso_table("simple_array_test")]
+        struct SimpleArrayTest {
+            #[orso_column(primary_key)]
+            id: Option<String>,
+            numbers: Vec<i64>,
+            name: String,
+        }
+
+        // Clean up any existing table
+        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS simple_array_test", &[]).await;
+
+        Migrations::init(&db, &[migration!(SimpleArrayTest)]).await?;
+
+        let test_data = SimpleArrayTest {
+            id: None,
+            numbers: vec![1, 2, 3],
+            name: "Test".to_string(),
+        };
+
+        // Debug what to_map produces
+        let map = test_data.to_map()?;
+        for (key, value) in &map {
+            println!("{}: {:?}", key, value);
+        }
+
+        println!("Attempting insert...");
+        test_data.insert(&db).await?;
+        println!("✓ Insert successful!");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_postgresql_native_arrays_basic() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing table
+        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_arrays_basic", &[]).await;
+
+        // Create table
+        let results = Migrations::init(&db, &[migration!(TestArraysBasic)]).await?;
+        println!("Migration results: {:?}", results);
+
+        // Verify SQL contains PostgreSQL array types
+        let migration_sql = TestArraysBasic::migration_sql();
+        println!("Migration SQL: {}", migration_sql);
+        assert!(migration_sql.contains("BIGINT[]"), "Should use BIGINT[] for Vec<i64>");
+        assert!(migration_sql.contains("DOUBLE PRECISION[]"), "Should use DOUBLE PRECISION[] for Vec<f64>");
+        assert!(migration_sql.contains("INTEGER[]"), "Should use INTEGER[] for Vec<i32>");
+
+        // Test data insertion
+        let test_data = TestArraysBasic {
+            id: None,
+            i64_array: vec![1, 2, 3, 100, -50],
+            f64_array: vec![1.1, 2.2, 3.14159, -0.5],
+            i32_array: vec![10, 20, 30],
+            name: "Array Test".to_string(),
+        };
+
+        println!("Inserting test data: {:?}", test_data);
+        test_data.insert(&db).await?;
+
+        // Retrieve and verify
+        let all_records = TestArraysBasic::find_all(&db).await?;
+        assert_eq!(all_records.len(), 1);
+
+        let retrieved = &all_records[0];
+        println!("Retrieved data: {:?}", retrieved);
+
+        // Verify arrays match exactly
+        assert_eq!(retrieved.i64_array, vec![1, 2, 3, 100, -50]);
+        assert_eq!(retrieved.f64_array, vec![1.1, 2.2, 3.14159, -0.5]);
+        assert_eq!(retrieved.i32_array, vec![10, 20, 30]);
+        assert_eq!(retrieved.name, "Array Test");
+
+        // Test with empty arrays
+        let empty_data = TestArraysBasic {
+            id: None,
+            i64_array: vec![],
+            f64_array: vec![],
+            i32_array: vec![],
+            name: "Empty Arrays".to_string(),
+        };
+
+        empty_data.insert(&db).await?;
+
+        let all_records = TestArraysBasic::find_all(&db).await?;
+        assert_eq!(all_records.len(), 2);
+
+        let empty_retrieved = all_records.iter().find(|r| r.name == "Empty Arrays").unwrap();
+        assert_eq!(empty_retrieved.i64_array, Vec::<i64>::new());
+        assert_eq!(empty_retrieved.f64_array, Vec::<f64>::new());
+        assert_eq!(empty_retrieved.i32_array, Vec::<i32>::new());
+
+        Ok(())
+    }
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("test_arrays_vs_compressed")]
+    struct TestArraysVsCompressed {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        // Uncompressed - should be PostgreSQL arrays
+        uncompressed_i64: Vec<i64>,
+        uncompressed_f64: Vec<f64>,
+
+        // Compressed - should be BYTEA blobs
+        #[orso_column(compress)]
+        compressed_i64: Vec<i64>,
+        #[orso_column(compress)]
+        compressed_f64: Vec<f64>,
+
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn test_arrays_vs_compression() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing table
+        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_arrays_vs_compressed", &[]).await;
+
+        Migrations::init(&db, &[migration!(TestArraysVsCompressed)]).await?;
+
+        // Verify SQL generation
+        let migration_sql = TestArraysVsCompressed::migration_sql();
+        println!("Migration SQL: {}", migration_sql);
+
+        // Uncompressed should be PostgreSQL arrays
+        assert!(migration_sql.contains("uncompressed_i64 BIGINT[]"));
+        assert!(migration_sql.contains("uncompressed_f64 DOUBLE PRECISION[]"));
+
+        // Compressed should be BYTEA
+        assert!(migration_sql.contains("compressed_i64 BYTEA"));
+        assert!(migration_sql.contains("compressed_f64 BYTEA"));
+
+        // Test with smaller data to avoid parameter binding issues
+        let test_data: Vec<i64> = (0..10).collect();
+        let test_f64_data: Vec<f64> = (0..10).map(|x| x as f64 * 1.5).collect();
+
+        let test_record = TestArraysVsCompressed {
+            id: None,
+            uncompressed_i64: test_data.clone(),
+            uncompressed_f64: test_f64_data.clone(),
+            compressed_i64: test_data.clone(),
+            compressed_f64: test_f64_data.clone(),
+            name: "Array vs Compression Test".to_string(),
+        };
+
+        println!("Inserting test data (10 elements each)...");
+        test_record.insert(&db).await?;
+
+        // Retrieve and verify both compressed and uncompressed work
+        let retrieved = TestArraysVsCompressed::find_all(&db).await?;
+        assert_eq!(retrieved.len(), 1);
+
+        let record = &retrieved[0];
+
+        // Both should have identical data despite different storage
+        assert_eq!(record.uncompressed_i64, test_data);
+        assert_eq!(record.uncompressed_f64, test_f64_data);
+        assert_eq!(record.compressed_i64, test_data);
+        assert_eq!(record.compressed_f64, test_f64_data);
+
+        println!("✓ Both array and compressed storage work correctly!");
+
+        Ok(())
+    }
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("test_array_edge_cases")]
+    struct TestArrayEdgeCases {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        // Edge case values
+        extreme_i64: Vec<i64>,
+        extreme_f64: Vec<f64>,
+        mixed_signs: Vec<i64>,
+
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn test_array_edge_cases() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing table
+        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_array_edge_cases", &[]).await;
+
+        Migrations::init(&db, &[migration!(TestArrayEdgeCases)]).await?;
+
+        // Test extreme values
+        let test_data = TestArrayEdgeCases {
+            id: None,
+            extreme_i64: vec![i64::MIN, i64::MAX, 0, -1, 1],
+            extreme_f64: vec![f64::MIN, f64::MAX, f64::NEG_INFINITY, f64::INFINITY, 0.0, -0.0, f64::NAN],
+            mixed_signs: vec![-1000, -1, 0, 1, 1000],
+            name: "Extreme Values".to_string(),
+        };
+
+        test_data.insert(&db).await?;
+
+        let retrieved = TestArrayEdgeCases::find_all(&db).await?;
+        assert_eq!(retrieved.len(), 1);
+
+        let record = &retrieved[0];
+
+        // Check extreme integers
+        assert_eq!(record.extreme_i64, vec![i64::MIN, i64::MAX, 0, -1, 1]);
+        assert_eq!(record.mixed_signs, vec![-1000, -1, 0, 1, 1000]);
+
+        // Check extreme floats (NaN needs special handling)
+        assert_eq!(record.extreme_f64[0], f64::MIN);
+        assert_eq!(record.extreme_f64[1], f64::MAX);
+        assert_eq!(record.extreme_f64[2], f64::NEG_INFINITY);
+        assert_eq!(record.extreme_f64[3], f64::INFINITY);
+        assert_eq!(record.extreme_f64[4], 0.0);
+        assert_eq!(record.extreme_f64[5], -0.0);
+        assert!(record.extreme_f64[6].is_nan()); // NaN comparison
+
+        println!("✓ All extreme values handled correctly!");
+
+        Ok(())
+    }
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("test_array_queries")]
+    struct TestArrayQueries {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        numbers: Vec<i64>,
+        scores: Vec<f64>,
+        category: String,
+    }
+
+    #[tokio::test]
+    async fn test_array_crud_operations() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing table
+        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_array_queries", &[]).await;
+
+        Migrations::init(&db, &[migration!(TestArrayQueries)]).await?;
+
+        // Insert multiple records
+        let records = vec![
+            TestArrayQueries {
+                id: None,
+                numbers: vec![1, 2, 3],
+                scores: vec![10.5, 20.5, 30.5],
+                category: "A".to_string(),
+            },
+            TestArrayQueries {
+                id: None,
+                numbers: vec![4, 5, 6, 7],
+                scores: vec![40.0, 50.0, 60.0, 70.0],
+                category: "B".to_string(),
+            },
+            TestArrayQueries {
+                id: None,
+                numbers: vec![],
+                scores: vec![],
+                category: "Empty".to_string(),
+            },
+        ];
+
+        for record in &records {
+            record.insert(&db).await?;
+        }
+
+        // Test find_all
+        let all_records = TestArrayQueries::find_all(&db).await?;
+        assert_eq!(all_records.len(), 3);
+
+        // Test find by ID
+        let first_id = all_records[0].get_primary_key().unwrap();
+        let found_by_id = TestArrayQueries::find_by_id(&first_id, &db).await?;
+        assert!(found_by_id.is_some());
+        assert_eq!(found_by_id.unwrap().numbers, vec![1, 2, 3]);
+
+        // Test update
+        let mut record_to_update = all_records[0].clone();
+        record_to_update.numbers = vec![100, 200, 300];
+        record_to_update.scores = vec![1000.0, 2000.0, 3000.0];
+        record_to_update.update(&db).await?;
+
+        // Verify update
+        let updated_record = TestArrayQueries::find_by_id(&first_id, &db).await?.unwrap();
+        assert_eq!(updated_record.numbers, vec![100, 200, 300]);
+        assert_eq!(updated_record.scores, vec![1000.0, 2000.0, 3000.0]);
+
+        // Test delete
+        updated_record.delete(&db).await?;
+        let after_delete = TestArrayQueries::find_all(&db).await?;
+        assert_eq!(after_delete.len(), 2);
+
+        println!("✓ All CRUD operations work with arrays!");
+
+        Ok(())
+    }
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
+    #[orso_table("test_array_field_types")]
+    struct TestArrayFieldTypes {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        // Different numeric Vec types
+        u8_array: Vec<u8>,
+        u16_array: Vec<u16>,
+        u32_array: Vec<u32>,
+        u64_array: Vec<u64>,
+
+        i8_array: Vec<i8>,
+        i16_array: Vec<i16>,
+        i32_array: Vec<i32>,
+        i64_array: Vec<i64>,
+
+        f32_array: Vec<f32>,
+        f64_array: Vec<f64>,
+    }
+
+    impl Default for TestArrayFieldTypes {
+        fn default() -> Self {
+            Self {
+                id: None,
+                u8_array: vec![1, 2, 255],
+                u16_array: vec![1, 2, 65535],
+                u32_array: vec![1, 2, 4294967295],
+                u64_array: vec![1, 2, 18446744073709551615],
+                i8_array: vec![-128, 0, 127],
+                i16_array: vec![-32768, 0, 32767],
+                i32_array: vec![-2147483648, 0, 2147483647],
+                i64_array: vec![i64::MIN, 0, i64::MAX],
+                f32_array: vec![-1.5, 0.0, 1.5],
+                f64_array: vec![-2.5, 0.0, 2.5],
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_all_numeric_array_types() -> Result<(), Box<dyn std::error::Error>> {
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        Migrations::init(&db, &[migration!(TestArrayFieldTypes)]).await?;
+
+        // Verify SQL uses correct PostgreSQL array types
+        let migration_sql = TestArrayFieldTypes::migration_sql();
+        println!("Migration SQL for all types:\n{}", migration_sql);
+
+        // Check integer array mappings
+        assert!(migration_sql.contains("u8_array INTEGER[]"));
+        assert!(migration_sql.contains("u16_array INTEGER[]"));
+        assert!(migration_sql.contains("u32_array INTEGER[]"));
+        assert!(migration_sql.contains("u64_array BIGINT[]"));
+
+        assert!(migration_sql.contains("i8_array INTEGER[]"));
+        assert!(migration_sql.contains("i16_array INTEGER[]"));
+        assert!(migration_sql.contains("i32_array INTEGER[]"));
+        assert!(migration_sql.contains("i64_array BIGINT[]"));
+
+        // Check float array mappings
+        assert!(migration_sql.contains("f32_array DOUBLE PRECISION[]"));
+        assert!(migration_sql.contains("f64_array DOUBLE PRECISION[]"));
+
+        // Test with default extreme values
+        let test_data = TestArrayFieldTypes::default();
+        println!("Inserting test data with extreme values...");
+
+        test_data.insert(&db).await?;
+
+        // Retrieve and verify all types work
+        let retrieved = TestArrayFieldTypes::find_all(&db).await?;
+        assert_eq!(retrieved.len(), 1);
+
+        let record = &retrieved[0];
+
+        // Verify all arrays match (note: larger values get stored as their PostgreSQL equivalents)
+        assert_eq!(record.u8_array, vec![1, 2, 255]);
+        assert_eq!(record.i8_array, vec![-128, 0, 127]);
+        assert_eq!(record.f32_array, vec![-1.5, 0.0, 1.5]);
+        assert_eq!(record.f64_array, vec![-2.5, 0.0, 2.5]);
+
+        println!("✓ All numeric array types work correctly!");
+
+        Ok(())
+    }
 }

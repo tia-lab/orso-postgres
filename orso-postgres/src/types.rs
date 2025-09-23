@@ -8,6 +8,9 @@ pub enum Value {
     Text(String),
     Blob(Vec<u8>),
     Boolean(bool),
+    // Array types for PostgreSQL native arrays
+    IntegerArray(Vec<i64>),
+    NumericArray(Vec<f64>),
 }
 
 impl From<i64> for Value {
@@ -234,6 +237,9 @@ impl Value {
             },
             Value::Blob(b) => Box::new(b.clone()),
             Value::Boolean(b) => Box::new(*b),
+            // Array types - pass directly to PostgreSQL
+            Value::IntegerArray(arr) => Box::new(arr.clone()),
+            Value::NumericArray(arr) => Box::new(arr.clone()),
         }
     }
 
@@ -275,6 +281,21 @@ impl Value {
                         Value::Text(crate::Utils::create_timestamp(datetime))
                     })
                     .unwrap_or(Value::Null))
+            }
+            "_int8" | "int8[]" => {
+                // PostgreSQL BIGINT array
+                let val: Option<Vec<i64>> = row.try_get(idx)?;
+                Ok(val.map(Value::IntegerArray).unwrap_or(Value::Null))
+            }
+            "_int4" | "int4[]" => {
+                // PostgreSQL INTEGER array - convert to i64
+                let val: Option<Vec<i32>> = row.try_get(idx)?;
+                Ok(val.map(|arr| Value::IntegerArray(arr.into_iter().map(|i| i as i64).collect())).unwrap_or(Value::Null))
+            }
+            "_float8" | "float8[]" => {
+                // PostgreSQL DOUBLE PRECISION array
+                let val: Option<Vec<f64>> = row.try_get(idx)?;
+                Ok(val.map(Value::NumericArray).unwrap_or(Value::Null))
             }
             _ => {
                 // Try as string for unknown types

@@ -338,6 +338,10 @@ fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
         FieldType::Boolean => "BOOLEAN".to_string(),  // PostgreSQL native BOOLEAN
         FieldType::JsonB => "JSONB".to_string(),      // PostgreSQL native JSONB
         FieldType::Timestamp => "TIMESTAMP WITHOUT TIME ZONE".to_string(), // PostgreSQL UTC timestamp without timezone
+        // Array types for PostgreSQL native arrays
+        FieldType::IntegerArray => "INTEGER[]".to_string(),   // PostgreSQL INTEGER array
+        FieldType::BigIntArray => "BIGINT[]".to_string(),     // PostgreSQL BIGINT array
+        FieldType::NumericArray => "DOUBLE PRECISION[]".to_string(), // PostgreSQL DOUBLE PRECISION array
     }
 }
 
@@ -701,6 +705,66 @@ fn generate_create_table_sql(table_name: &str, columns: &[ColumnInfo]) -> String
     )
 }
 
+// Generate PostgreSQL conversion SQL for type changes
+fn generate_type_conversion(source_type: &str, target_type: &str, column_name: &str) -> String {
+    match (source_type, target_type) {
+        ("TEXT", "BIGINT[]") => {
+            // Convert JSON array "[1,2,3,4]" to PostgreSQL BIGINT array
+            format!(
+                "CASE
+                    WHEN \"{}\" LIKE '[%]' THEN
+                        (SELECT ARRAY_AGG(elem::BIGINT) FROM jsonb_array_elements_text(\"{}\"::jsonb) AS elem)
+                    ELSE NULL::BIGINT[]
+                 END",
+                column_name, column_name
+            )
+        }
+        ("TEXT", "INTEGER[]") => {
+            // Convert JSON array "[1,2,3,4]" to PostgreSQL INTEGER array
+            format!(
+                "CASE
+                    WHEN \"{}\" LIKE '[%]' THEN
+                        (SELECT ARRAY_AGG(elem::INTEGER) FROM jsonb_array_elements_text(\"{}\"::jsonb) AS elem)
+                    ELSE NULL::INTEGER[]
+                 END",
+                column_name, column_name
+            )
+        }
+        ("TEXT", "DOUBLE PRECISION[]") => {
+            // Convert JSON array "[1.5,2.7,3.9]" to PostgreSQL DOUBLE PRECISION array
+            format!(
+                "CASE
+                    WHEN \"{}\" LIKE '[%]' THEN
+                        (SELECT ARRAY_AGG(elem::DOUBLE PRECISION) FROM jsonb_array_elements_text(\"{}\"::jsonb) AS elem)
+                    ELSE NULL::DOUBLE PRECISION[]
+                 END",
+                column_name, column_name
+            )
+        }
+        ("TEXT", "BYTEA") => {
+            // Convert TEXT to BYTEA for compression migration
+            format!("convert_to(\"{}\", 'UTF8')", column_name)
+        }
+        ("BIGINT[]", "BYTEA") => {
+            // Convert PostgreSQL BIGINT array to BYTEA for compression
+            // First convert array to JSON text, then to BYTEA
+            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+        }
+        ("INTEGER[]", "BYTEA") => {
+            // Convert PostgreSQL INTEGER array to BYTEA for compression
+            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+        }
+        ("DOUBLE PRECISION[]", "BYTEA") => {
+            // Convert PostgreSQL DOUBLE PRECISION array to BYTEA for compression
+            format!("convert_to(array_to_json(\"{}\")::text, 'UTF8')", column_name)
+        }
+        _ => {
+            // Default: try direct cast
+            format!("\"{}\"::{}", column_name, target_type)
+        }
+    }
+}
+
 fn generate_data_migration_sql(
     source_table: &str,
     target_table: &str,
@@ -714,9 +778,16 @@ fn generate_data_migration_sql(
     let mut select_columns = Vec::new();
 
     for target_col in target_columns {
-        if let Some(_source_col) = source_map.get(&target_col.name) {
-            // Column exists in both, copy directly
-            select_columns.push(format!("\"{}\"", target_col.name));
+        if let Some(source_col) = source_map.get(&target_col.name) {
+            // Column exists in both, check if conversion is needed
+            if source_col.sql_type == target_col.sql_type {
+                // Same type, copy directly
+                select_columns.push(format!("\"{}\"", target_col.name));
+            } else {
+                // Different types, need conversion
+                let conversion = generate_type_conversion(&source_col.sql_type, &target_col.sql_type, &target_col.name);
+                select_columns.push(conversion);
+            }
         } else {
             // Column doesn't exist in source, use NULL or appropriate default
             if target_col.nullable {

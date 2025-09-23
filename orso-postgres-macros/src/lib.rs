@@ -694,7 +694,50 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                             }
                         }
                         serde_json::Value::String(s) => orso::Value::Text(s),
-                        serde_json::Value::Array(_) => orso::Value::Text(serde_json::to_string(&v)?),
+                        serde_json::Value::Array(arr) => {
+                            // Check field type to determine if this should be an array Value or Text
+                            if let Some(pos) = field_names.iter().position(|&name| name == k) {
+                                if let Some(field_type) = field_types.get(pos) {
+                                    match field_type {
+                                        orso::FieldType::IntegerArray => {
+                                            // Convert JSON array to Vec<i64> (for i32, i16, i8, u32, u16, u8)
+                                            let vec: Result<Vec<i64>, _> = arr.iter()
+                                                .map(|v| v.as_i64().ok_or("not i64"))
+                                                .collect();
+                                            match vec {
+                                                Ok(v) => orso::Value::IntegerArray(v),
+                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                            }
+                                        }
+                                        orso::FieldType::BigIntArray => {
+                                            // Convert JSON array to Vec<i64> (for i64, u64)
+                                            let vec: Result<Vec<i64>, _> = arr.iter()
+                                                .map(|v| v.as_i64().ok_or("not i64"))
+                                                .collect();
+                                            match vec {
+                                                Ok(v) => orso::Value::IntegerArray(v),
+                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                            }
+                                        }
+                                        orso::FieldType::NumericArray => {
+                                            // Convert JSON array to Vec<f64>
+                                            let vec: Result<Vec<f64>, _> = arr.iter()
+                                                .map(|v| v.as_f64().ok_or("not f64"))
+                                                .collect();
+                                            match vec {
+                                                Ok(v) => orso::Value::NumericArray(v),
+                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                            }
+                                        }
+                                        _ => orso::Value::Text(serde_json::to_string(&arr)?),
+                                    }
+                                } else {
+                                    orso::Value::Text(serde_json::to_string(&arr)?)
+                                }
+                            } else {
+                                orso::Value::Text(serde_json::to_string(&arr)?)
+                            }
+                        },
                         serde_json::Value::Object(_) => orso::Value::Text(serde_json::to_string(&v)?),
                     };
                     result.insert(k, value);
@@ -771,6 +814,26 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                         serde_json::Value::Array(
                                             blob.iter()
                                             .map(|byte| serde_json::Value::Number(serde_json::Number::from(*byte)))
+                                            .collect()
+                                        )
+                                    }
+                                    orso::Value::IntegerArray(arr) => {
+                                        serde_json::Value::Array(
+                                            arr.iter()
+                                            .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
+                                            .collect()
+                                        )
+                                    }
+                                    orso::Value::NumericArray(arr) => {
+                                        serde_json::Value::Array(
+                                            arr.iter()
+                                            .map(|f| {
+                                                if let Some(n) = serde_json::Number::from_f64(*f) {
+                                                    serde_json::Value::Number(n)
+                                                } else {
+                                                    serde_json::Value::String(f.to_string())
+                                                }
+                                            })
                                             .collect()
                                         )
                                     }
@@ -1220,6 +1283,26 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 .collect()
                             )
                         }
+                        orso::Value::IntegerArray(arr) => {
+                            serde_json::Value::Array(
+                                arr.iter()
+                                .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
+                                .collect()
+                            )
+                        }
+                        orso::Value::NumericArray(arr) => {
+                            serde_json::Value::Array(
+                                arr.iter()
+                                .map(|f| {
+                                    if let Some(n) = serde_json::Number::from_f64(*f) {
+                                        serde_json::Value::Number(n)
+                                    } else {
+                                        serde_json::Value::String(f.to_string())
+                                    }
+                                })
+                                .collect()
+                            )
+                        }
                     };
                     json_map.insert(k.clone(), json_value);
                 }
@@ -1252,6 +1335,8 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     orso::Value::Text(s) => Box::new(s.clone()),
                     orso::Value::Blob(b) => Box::new(b.clone()),
                     orso::Value::Boolean(b) => Box::new(*b),
+                    orso::Value::IntegerArray(arr) => Box::new(arr.clone()),
+                    orso::Value::NumericArray(arr) => Box::new(arr.clone()),
                 }
             }
         }
@@ -1328,7 +1413,7 @@ fn parse_orso_column_attr(
     } else if is_foreign_key {
         "TEXT".to_string() // Foreign keys are always TEXT (UUID)
     } else {
-        column_type.unwrap_or_else(|| map_rust_type_to_sql_type(field_type))
+        column_type.unwrap_or_else(|| map_rust_type_to_sql_type(field_type, is_compressed))
     };
 
     let mut column_def = format!("{} {}", field_name, base_type);
@@ -1361,7 +1446,7 @@ fn parse_orso_column_attr(
 
 // Map Rust types to SQL column definitions
 fn map_rust_type_to_sql_column(rust_type: &syn::Type, field_name: &str) -> String {
-    let sql_type = map_rust_type_to_sql_type(rust_type);
+    let sql_type = map_rust_type_to_sql_type(rust_type, false); // Default to not compressed
     let mut column_def = format!("{} {}", field_name, sql_type);
 
     // Add NOT NULL for non-Option types
@@ -1373,10 +1458,27 @@ fn map_rust_type_to_sql_column(rust_type: &syn::Type, field_name: &str) -> Strin
 }
 
 // Map Rust types to SQL types
-fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
+fn map_rust_type_to_sql_type(rust_type: &syn::Type, is_compressed: bool) -> String {
     if let syn::Type::Path(type_path) = rust_type {
         if let Some(segment) = type_path.path.segments.last() {
             let type_name = segment.ident.to_string();
+
+            // Handle Vec<T> types first
+            if type_name == "Vec" {
+                if is_compressed {
+                    // Compressed Vec fields are stored as BYTEA
+                    return "BYTEA".to_string();
+                } else {
+                    // Uncompressed Vec fields use PostgreSQL native arrays
+                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
+                            return map_vec_to_sql_array_type(inner_type);
+                        }
+                    }
+                    return "TEXT".to_string(); // Fallback
+                }
+            }
+
             return match type_name.as_str() {
                 "String" => "TEXT".to_string(),
                 "i64" => "BIGINT".to_string(),           // PostgreSQL BIGINT for i64
@@ -1390,7 +1492,7 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
                     // Handle Option<T> types
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                         if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                            return map_rust_type_to_sql_type(inner_type);
+                            return map_rust_type_to_sql_type(inner_type, is_compressed);
                         }
                     }
                     "TEXT".to_string()
@@ -1411,18 +1513,56 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
     "TEXT".to_string()
 }
 
+// Map Vec<T> types to PostgreSQL array SQL types
+fn map_vec_to_sql_array_type(inner_type: &syn::Type) -> String {
+    if let syn::Type::Path(type_path) = inner_type {
+        if let Some(segment) = type_path.path.segments.last() {
+            let type_name = segment.ident.to_string();
+            return match type_name.as_str() {
+                "i64" | "u64" => "BIGINT[]".to_string(),
+                "i32" | "i16" | "i8" | "u32" | "u16" | "u8" => "INTEGER[]".to_string(),
+                "f64" | "f32" => "DOUBLE PRECISION[]".to_string(),
+                _ => "TEXT[]".to_string(), // Fallback for other Vec types
+            };
+        }
+    }
+    "TEXT[]".to_string() // Fallback
+}
+
+// Map Vec<T> types to array FieldTypes
+fn map_vec_to_array_field_type(inner_type: &syn::Type) -> proc_macro2::TokenStream {
+    if let syn::Type::Path(type_path) = inner_type {
+        if let Some(segment) = type_path.path.segments.last() {
+            let type_name = segment.ident.to_string();
+            return match type_name.as_str() {
+                "i64" | "u64" => quote! { orso::FieldType::BigIntArray },
+                "i32" | "i16" | "i8" | "u32" | "u16" | "u8" => quote! { orso::FieldType::IntegerArray },
+                "f64" | "f32" => quote! { orso::FieldType::NumericArray },
+                _ => quote! { orso::FieldType::Text }, // Fallback for other Vec types
+            };
+        }
+    }
+    quote! { orso::FieldType::Text } // Fallback
+}
+
 // Map field types to FieldType enum
-fn map_field_type(rust_type: &syn::Type, _field: &syn::Field) -> proc_macro2::TokenStream {
+fn map_field_type(rust_type: &syn::Type, _field: &syn::Field, is_compressed: bool) -> proc_macro2::TokenStream {
     if let syn::Type::Path(type_path) = rust_type {
         if let Some(segment) = type_path.path.segments.last() {
             let type_name = segment.ident.to_string();
 
-            // Handle Vec<T> types by checking the inner type
+            // Handle Vec<T> types - map to array FieldTypes only if NOT compressed
             if type_name == "Vec" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                        // Recursively map the inner type
-                        return map_field_type(inner_type, _field);
+                if is_compressed {
+                    // Compressed Vec fields are stored as BYTEA blobs, represented as Text in FieldType
+                    return quote! { orso::FieldType::Text };
+                } else {
+                    // Uncompressed Vec fields use PostgreSQL native arrays
+                    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
+                            // Map Vec<T> to appropriate array FieldType based on inner type T
+                            return map_vec_to_array_field_type(inner_type);
+                        }
                     }
                 }
             }
@@ -1439,7 +1579,7 @@ fn map_field_type(rust_type: &syn::Type, _field: &syn::Field) -> proc_macro2::To
                     // Handle Option<T> types - get the inner type
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                         if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                            return map_field_type(inner_type, _field);
+                            return map_field_type(inner_type, _field, is_compressed);
                         }
                     }
                     quote! { orso::FieldType::Text }
@@ -1530,7 +1670,7 @@ fn extract_field_metadata_original(
             column_defs.push(quote! { #column_def.to_string() });
 
             // Enhanced type mapping based on field type and attributes
-            let field_type = map_field_type(&field.ty, field);
+            let field_type = map_field_type(&field.ty, field, is_compressed);
             field_types.push(field_type);
 
             // Check if field is Option<T> (nullable)
