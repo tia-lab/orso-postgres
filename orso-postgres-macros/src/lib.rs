@@ -242,7 +242,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // First pass: collect compressed fields by type
                 for (k, v) in &map {
-                    // Skip auto-generated fields when they are null - let SQLite use DEFAULT values
+                    // Skip auto-generated fields when they are null - let PostgreSQL use DEFAULT values
                     let should_skip = matches!(v, serde_json::Value::Null) && (
                         *k == pk_field ||
                         (created_field.is_some() && *k == created_field.unwrap()) ||
@@ -670,7 +670,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         continue;
                     }
 
-                    // Skip auto-generated fields when they are null - let SQLite use DEFAULT values
+                    // Skip auto-generated fields when they are null - let PostgreSQL use DEFAULT values
                     let should_skip = matches!(v, serde_json::Value::Null) && (
                         k == pk_field ||
                         (created_field.is_some() && k == created_field.unwrap()) ||
@@ -1203,9 +1203,9 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                             }
                         }
                         orso::Value::Text(s) => {
-                            // Check if this might be a SQLite datetime that needs conversion
+                            // Check if this might be a database datetime that needs conversion
                             if s.len() == 19 && s.chars().nth(4) == Some('-') && s.chars().nth(7) == Some('-') && s.chars().nth(10) == Some(' ') {
-                                // This looks like SQLite datetime format: "2025-09-13 10:50:43"
+                                // This looks like datetime format: "2025-09-13 10:50:43"
                                 // Convert to RFC3339 format: "2025-09-13T10:50:43Z"
                                 let rfc3339_format = s.replace(' ', "T") + "Z";
                                 serde_json::Value::String(rfc3339_format)
@@ -1234,45 +1234,24 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
 
             // Utility methods
-            fn row_to_map(row: &orso::libsql::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
+            fn row_to_map(row: &tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
                 let mut map = std::collections::HashMap::new();
-                for i in 0..row.column_count() {
-                    if let Some(column_name) = row.column_name(i) {
-                        let value = row.get_value(i).unwrap_or(orso::libsql::Value::Null);
-                        map.insert(column_name.to_string(), Self::libsql_value_to_value(&value));
-                    }
+                for (i, column) in row.columns().iter().enumerate() {
+                    let column_name = column.name();
+                    let value = orso::Value::from_postgres_row(row, i)?;
+                    map.insert(column_name.to_string(), value);
                 }
                 Ok(map)
             }
 
-            fn value_to_libsql_value(value: &orso::Value) -> orso::libsql::Value {
+            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
                 match value {
-                    orso::Value::Null => orso::libsql::Value::Null,
-                    orso::Value::Integer(i) => orso::libsql::Value::Integer(*i),
-                    orso::Value::Real(f) => orso::libsql::Value::Real(*f),
-                    orso::Value::Text(s) => orso::libsql::Value::Text(s.clone()),
-                    orso::Value::Blob(b) => orso::libsql::Value::Blob(b.clone()),
-                    orso::Value::Boolean(b) => orso::libsql::Value::Integer(if *b { 1 } else { 0 }),
-                }
-            }
-
-            fn libsql_value_to_value(value: &orso::libsql::Value) -> orso::Value {
-                match value {
-                    orso::libsql::Value::Null => orso::Value::Null,
-                    orso::libsql::Value::Integer(i) => {
-                        // SQLite stores booleans as integers 0/1
-                        // Check if this might be a boolean value
-                        if *i == 0 || *i == 1 {
-                            // This could be a boolean, but we don't have type context here
-                            // For now, keep as integer and let from_map handle the conversion
-                            orso::Value::Integer(*i)
-                        } else {
-                            orso::Value::Integer(*i)
-                        }
-                    },
-                    orso::libsql::Value::Real(f) => orso::Value::Real(*f),
-                    orso::libsql::Value::Text(s) => orso::Value::Text(s.clone()),
-                    orso::libsql::Value::Blob(b) => orso::Value::Blob(b.clone()),
+                    orso::Value::Null => Box::new(Option::<String>::None),
+                    orso::Value::Integer(i) => Box::new(*i),
+                    orso::Value::Real(f) => Box::new(*f),
+                    orso::Value::Text(s) => Box::new(s.clone()),
+                    orso::Value::Blob(b) => Box::new(b.clone()),
+                    orso::Value::Boolean(b) => Box::new(*b),
                 }
             }
         }
@@ -1358,7 +1337,7 @@ fn parse_orso_column_attr(
         column_def.push_str(" PRIMARY KEY");
         // Add default for primary key if it's TEXT type
         if base_type == "TEXT" {
-            column_def.push_str(" DEFAULT (lower(hex(randomblob(16))))");
+            column_def.push_str(" DEFAULT gen_random_uuid()");  // PostgreSQL UUID generation
         }
     }
     // Add NOT NULL for non-Option types (except primary keys which are already handled)
@@ -1374,7 +1353,7 @@ fn parse_orso_column_attr(
 
     // Add defaults for timestamp columns
     if is_created_at || is_updated_at {
-        column_def.push_str(" DEFAULT (strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now'))");
+        column_def.push_str(" DEFAULT NOW()");  // PostgreSQL timestamp generation
     }
 
     column_def
@@ -1400,10 +1379,12 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type) -> String {
             let type_name = segment.ident.to_string();
             return match type_name.as_str() {
                 "String" => "TEXT".to_string(),
-                "i64" | "i32" | "i16" | "i8" => "INTEGER".to_string(),
-                "u64" | "u32" | "u16" | "u8" => "INTEGER".to_string(),
-                "f64" | "f32" => "REAL".to_string(),
-                "bool" => "INTEGER".to_string(), // SQLite stores booleans as integers
+                "i64" => "BIGINT".to_string(),           // PostgreSQL BIGINT for i64
+                "i32" | "i16" | "i8" => "INTEGER".to_string(),
+                "u64" => "BIGINT".to_string(),           // PostgreSQL BIGINT for u64
+                "u32" | "u16" | "u8" => "INTEGER".to_string(),
+                "f64" | "f32" => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
+                "bool" => "BOOLEAN".to_string(),         // PostgreSQL native BOOLEAN type
                 "Option" => {
                     // Handle Option<T> types
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
