@@ -31,7 +31,10 @@ mod tests {
     }
 
     /// Clean up test table to ensure isolated test runs
-    async fn cleanup_test_table(db: &Database, table_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn cleanup_test_table(
+        db: &Database,
+        table_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Drop table if it exists to ensure clean test state
         let drop_sql = format!("DROP TABLE IF EXISTS {} CASCADE", table_name);
         let _ = db.execute(&drop_sql, &[]).await; // Ignore errors if table doesn't exist
@@ -1907,7 +1910,12 @@ Test completed successfully!"
         }
 
         // Clean up any existing table
-        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS simple_array_test", &[]).await;
+        let _ = db
+            .pool
+            .get()
+            .await?
+            .execute("DROP TABLE IF EXISTS simple_array_test", &[])
+            .await;
 
         Migrations::init(&db, &[migration!(SimpleArrayTest)]).await?;
 
@@ -1936,7 +1944,12 @@ Test completed successfully!"
         let db = Database::init(config).await?;
 
         // Clean up any existing table
-        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_arrays_basic", &[]).await;
+        let _ = db
+            .pool
+            .get()
+            .await?
+            .execute("DROP TABLE IF EXISTS test_arrays_basic", &[])
+            .await;
 
         // Create table
         let results = Migrations::init(&db, &[migration!(TestArraysBasic)]).await?;
@@ -1945,9 +1958,18 @@ Test completed successfully!"
         // Verify SQL contains PostgreSQL array types
         let migration_sql = TestArraysBasic::migration_sql();
         println!("Migration SQL: {}", migration_sql);
-        assert!(migration_sql.contains("BIGINT[]"), "Should use BIGINT[] for Vec<i64>");
-        assert!(migration_sql.contains("DOUBLE PRECISION[]"), "Should use DOUBLE PRECISION[] for Vec<f64>");
-        assert!(migration_sql.contains("INTEGER[]"), "Should use INTEGER[] for Vec<i32>");
+        assert!(
+            migration_sql.contains("BIGINT[]"),
+            "Should use BIGINT[] for Vec<i64>"
+        );
+        assert!(
+            migration_sql.contains("DOUBLE PRECISION[]"),
+            "Should use DOUBLE PRECISION[] for Vec<f64>"
+        );
+        assert!(
+            migration_sql.contains("INTEGER[]"),
+            "Should use INTEGER[] for Vec<i32>"
+        );
 
         // Test data insertion
         let test_data = TestArraysBasic {
@@ -1988,7 +2010,10 @@ Test completed successfully!"
         let all_records = TestArraysBasic::find_all(&db).await?;
         assert_eq!(all_records.len(), 2);
 
-        let empty_retrieved = all_records.iter().find(|r| r.name == "Empty Arrays").unwrap();
+        let empty_retrieved = all_records
+            .iter()
+            .find(|r| r.name == "Empty Arrays")
+            .unwrap();
         assert_eq!(empty_retrieved.i64_array, Vec::<i64>::new());
         assert_eq!(empty_retrieved.f64_array, Vec::<f64>::new());
         assert_eq!(empty_retrieved.i32_array, Vec::<i32>::new());
@@ -2021,7 +2046,12 @@ Test completed successfully!"
         let db = Database::init(config).await?;
 
         // Clean up any existing table
-        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_arrays_vs_compressed", &[]).await;
+        let _ = db
+            .pool
+            .get()
+            .await?
+            .execute("DROP TABLE IF EXISTS test_arrays_vs_compressed", &[])
+            .await;
 
         Migrations::init(&db, &[migration!(TestArraysVsCompressed)]).await?;
 
@@ -2090,7 +2120,12 @@ Test completed successfully!"
         let db = Database::init(config).await?;
 
         // Clean up any existing table
-        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_array_edge_cases", &[]).await;
+        let _ = db
+            .pool
+            .get()
+            .await?
+            .execute("DROP TABLE IF EXISTS test_array_edge_cases", &[])
+            .await;
 
         Migrations::init(&db, &[migration!(TestArrayEdgeCases)]).await?;
 
@@ -2098,7 +2133,15 @@ Test completed successfully!"
         let test_data = TestArrayEdgeCases {
             id: None,
             extreme_i64: vec![i64::MIN, i64::MAX, 0, -1, 1],
-            extreme_f64: vec![f64::MIN, f64::MAX, f64::NEG_INFINITY, f64::INFINITY, 0.0, -0.0, f64::NAN],
+            extreme_f64: vec![
+                f64::MIN,
+                f64::MAX,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                0.0,
+                -0.0,
+                f64::NAN,
+            ],
             mixed_signs: vec![-1000, -1, 0, 1, 1000],
             name: "Extreme Values".to_string(),
         };
@@ -2145,7 +2188,12 @@ Test completed successfully!"
         let db = Database::init(config).await?;
 
         // Clean up any existing table
-        let _ = db.pool.get().await?.execute("DROP TABLE IF EXISTS test_array_queries", &[]).await;
+        let _ = db
+            .pool
+            .get()
+            .await?
+            .execute("DROP TABLE IF EXISTS test_array_queries", &[])
+            .await;
 
         Migrations::init(&db, &[migration!(TestArrayQueries)]).await?;
 

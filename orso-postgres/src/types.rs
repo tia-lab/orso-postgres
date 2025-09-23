@@ -9,8 +9,9 @@ pub enum Value {
     Blob(Vec<u8>),
     Boolean(bool),
     // Array types for PostgreSQL native arrays
-    IntegerArray(Vec<i64>),
-    NumericArray(Vec<f64>),
+    IntegerArray(Vec<i32>),    // INTEGER[] - for i32, i16, i8, u32, u16, u8
+    BigIntArray(Vec<i64>),     // BIGINT[] - for i64, u64
+    NumericArray(Vec<f64>),    // DOUBLE PRECISION[] - for f64, f32
 }
 
 impl From<i64> for Value {
@@ -239,6 +240,7 @@ impl Value {
             Value::Boolean(b) => Box::new(*b),
             // Array types - pass directly to PostgreSQL
             Value::IntegerArray(arr) => Box::new(arr.clone()),
+            Value::BigIntArray(arr) => Box::new(arr.clone()),
             Value::NumericArray(arr) => Box::new(arr.clone()),
         }
     }
@@ -285,12 +287,12 @@ impl Value {
             "_int8" | "int8[]" => {
                 // PostgreSQL BIGINT array
                 let val: Option<Vec<i64>> = row.try_get(idx)?;
-                Ok(val.map(Value::IntegerArray).unwrap_or(Value::Null))
+                Ok(val.map(Value::BigIntArray).unwrap_or(Value::Null))
             }
             "_int4" | "int4[]" => {
-                // PostgreSQL INTEGER array - convert to i64
+                // PostgreSQL INTEGER array
                 let val: Option<Vec<i32>> = row.try_get(idx)?;
-                Ok(val.map(|arr| Value::IntegerArray(arr.into_iter().map(|i| i as i64).collect())).unwrap_or(Value::Null))
+                Ok(val.map(Value::IntegerArray).unwrap_or(Value::Null))
             }
             "_float8" | "float8[]" => {
                 // PostgreSQL DOUBLE PRECISION array

@@ -700,9 +700,9 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 if let Some(field_type) = field_types.get(pos) {
                                     match field_type {
                                         orso::FieldType::IntegerArray => {
-                                            // Convert JSON array to Vec<i64> (for i32, i16, i8, u32, u16, u8)
-                                            let vec: Result<Vec<i64>, _> = arr.iter()
-                                                .map(|v| v.as_i64().ok_or("not i64"))
+                                            // Convert JSON array to Vec<i32> (for i32, i16, i8, u32, u16, u8)
+                                            let vec: Result<Vec<i32>, _> = arr.iter()
+                                                .map(|v| v.as_i64().and_then(|i| if i >= i32::MIN as i64 && i <= i32::MAX as i64 { Some(i as i32) } else { None }).ok_or("not i32"))
                                                 .collect();
                                             match vec {
                                                 Ok(v) => orso::Value::IntegerArray(v),
@@ -715,7 +715,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                                 .map(|v| v.as_i64().ok_or("not i64"))
                                                 .collect();
                                             match vec {
-                                                Ok(v) => orso::Value::IntegerArray(v),
+                                                Ok(v) => orso::Value::BigIntArray(v),
                                                 Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
                                             }
                                         }
@@ -818,6 +818,13 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                         )
                                     }
                                     orso::Value::IntegerArray(arr) => {
+                                        serde_json::Value::Array(
+                                            arr.iter()
+                                            .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
+                                            .collect()
+                                        )
+                                    }
+                                    orso::Value::BigIntArray(arr) => {
                                         serde_json::Value::Array(
                                             arr.iter()
                                             .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
@@ -1290,6 +1297,13 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 .collect()
                             )
                         }
+                        orso::Value::BigIntArray(arr) => {
+                            serde_json::Value::Array(
+                                arr.iter()
+                                .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
+                                .collect()
+                            )
+                        }
                         orso::Value::NumericArray(arr) => {
                             serde_json::Value::Array(
                                 arr.iter()
@@ -1336,6 +1350,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     orso::Value::Blob(b) => Box::new(b.clone()),
                     orso::Value::Boolean(b) => Box::new(*b),
                     orso::Value::IntegerArray(arr) => Box::new(arr.clone()),
+                    orso::Value::BigIntArray(arr) => Box::new(arr.clone()),
                     orso::Value::NumericArray(arr) => Box::new(arr.clone()),
                 }
             }
