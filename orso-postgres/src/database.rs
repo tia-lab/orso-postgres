@@ -64,7 +64,14 @@ impl Database {
         params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<u64> {
         let client = self.pool.get().await?;
-        let rows = client.execute(sql, params).await?;
+
+        // Convert Send + Sync to Sync at the boundary (secure coercion)
+        let sync_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| *p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let rows = client.execute(sql, &sync_params).await?;
         Ok(rows)
     }
 
@@ -74,7 +81,14 @@ impl Database {
         params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Vec<Row>> {
         let client = self.pool.get().await?;
-        let rows = client.query(sql, params).await?;
+
+        // Convert Send + Sync to Sync at the boundary (secure coercion)
+        let sync_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| *p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let rows = client.query(sql, &sync_params).await?;
         Ok(rows)
     }
 
@@ -84,7 +98,14 @@ impl Database {
         params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Row> {
         let client = self.pool.get().await?;
-        let row = client.query_one(sql, params).await?;
+
+        // Convert Send + Sync to Sync at the boundary (secure coercion)
+        let sync_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| *p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let row = client.query_one(sql, &sync_params).await?;
         Ok(row)
     }
 
@@ -94,7 +115,14 @@ impl Database {
         params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
     ) -> Result<Option<Row>> {
         let client = self.pool.get().await?;
-        let row = client.query_opt(sql, params).await?;
+
+        // Convert Send + Sync to Sync at the boundary (secure coercion)
+        let sync_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| *p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        let row = client.query_opt(sql, &sync_params).await?;
         Ok(row)
     }
 }
