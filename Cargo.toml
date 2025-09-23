@@ -1,0 +1,14 @@
+[workspace]
+members = ["orso", "orso-macros"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.2"
+edition = "2021"
+authors = ["https://github.com/tia-lab"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tia-lab/orso"
+homepage = "https://github.com/tia-lab/orso"
+
+[workspace.dependencies]
+orso-macros = { path = "./orso-macros" }
