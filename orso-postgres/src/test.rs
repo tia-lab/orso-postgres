@@ -2347,6 +2347,21 @@ Test completed successfully!"
 
         // Test with default extreme values
         let test_data = TestArrayFieldTypes::default();
+        // DEBUG: Check to_map conversion for this test
+        let test_data = TestArrayFieldTypes::default();
+        let map = test_data.to_map()?;
+        println!("=== DEBUG ALL NUMERIC ARRAYS ===");
+        for (k, v) in &map {
+            match v {
+                Value::BigIntArray(arr) => println!("  {}: BigIntArray({} elements)", k, arr.len()),
+                Value::IntegerArray(arr) => println!("  {}: IntegerArray({} elements)", k, arr.len()),
+                Value::NumericArray(arr) => println!("  {}: NumericArray({} elements)", k, arr.len()),
+                Value::Text(s) => println!("  {}: Text({})", k, if s.len() > 50 { format!("{}...", &s[..50]) } else { s.clone() }),
+                _ => println!("  {}: {:?}", k, v),
+            }
+        }
+        println!("==================================");
+
         println!("Inserting test data with extreme values...");
 
         test_data.insert(&db).await?;

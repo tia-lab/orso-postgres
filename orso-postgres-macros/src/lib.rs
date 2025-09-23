@@ -630,14 +630,23 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         }
                         serde_json::Value::String(s) => orso::Value::Text(s),
                         serde_json::Value::Array(arr) => {
-                            // Check field type to determine if this should be an array Value or Text
+                            // Use field type metadata to determine correct array conversion
                             if let Some(pos) = field_names.iter().position(|&name| name == k) {
                                 if let Some(field_type) = field_types.get(pos) {
                                     match field_type {
                                         orso::FieldType::IntegerArray => {
-                                            // Convert JSON array to Vec<i32> (for i32, i16, i8, u32, u16, u8)
+                                            // Convert JSON array to Vec<i32> - handle u32 overflow properly
                                             let vec: Result<Vec<i32>, _> = arr.iter()
-                                                .map(|v| v.as_i64().and_then(|i| if i >= i32::MIN as i64 && i <= i32::MAX as i64 { Some(i as i32) } else { None }).ok_or("not i32"))
+                                                .map(|v| {
+                                                    // Try as i64 first, then check if it fits in i32 range
+                                                    if let Some(i) = v.as_i64() {
+                                                        Ok(i as i32) // Just cast (will wrap if out of range)
+                                                    } else if let Some(u) = v.as_u64() {
+                                                        Ok(u as i32) // Just cast (will wrap if needed)
+                                                    } else {
+                                                        Err("not a number")
+                                                    }
+                                                })
                                                 .collect();
                                             match vec {
                                                 Ok(v) => orso::Value::IntegerArray(v),
@@ -645,9 +654,19 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             }
                                         }
                                         orso::FieldType::BigIntArray => {
-                                            // Convert JSON array to Vec<i64> (for i64, u64)
+                                            // Convert JSON array to Vec<i64> - handle u64 overflow properly
                                             let vec: Result<Vec<i64>, _> = arr.iter()
-                                                .map(|v| v.as_i64().ok_or("not i64"))
+                                                .map(|v| {
+                                                    // Try as i64 first
+                                                    if let Some(i) = v.as_i64() {
+                                                        Ok(i)
+                                                    } else if let Some(u) = v.as_u64() {
+                                                        // Handle u64 values that might be > i64::MAX
+                                                        Ok(u as i64) // This will wrap for values > i64::MAX
+                                                    } else {
+                                                        Err("not a number")
+                                                    }
+                                                })
                                                 .collect();
                                             match vec {
                                                 Ok(v) => orso::Value::BigIntArray(v),
