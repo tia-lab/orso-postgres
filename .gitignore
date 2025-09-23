@@ -72,3 +72,4 @@ test_*.sqlite
 QWEN*
 .qwen*
 CLAUDE*
+server

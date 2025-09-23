@@ -295,9 +295,9 @@ where
         // Determine if this is the primary key
         let is_primary_key = *name == primary_key_field;
 
-        // For compressed fields, we use BLOB type
+        // For compressed fields, we use BYTEA type (PostgreSQL binary data)
         let sql_type = if *compressed {
-            "BLOB".to_string()
+            "BYTEA".to_string()
         } else {
             field_type_to_sqlite_type(field_type)
         };
@@ -321,12 +321,12 @@ where
 fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
     match field_type {
         FieldType::Text => "TEXT".to_string(),
-        FieldType::Integer => "INTEGER".to_string(),
-        FieldType::BigInt => "INTEGER".to_string(),
-        FieldType::Numeric => "REAL".to_string(),
-        FieldType::Boolean => "INTEGER".to_string(),
-        FieldType::JsonB => "TEXT".to_string(),
-        FieldType::Timestamp => "TEXT".to_string(),
+        FieldType::Integer => "INTEGER".to_string(),  // PostgreSQL INTEGER (int4)
+        FieldType::BigInt => "BIGINT".to_string(),    // PostgreSQL BIGINT (int8)
+        FieldType::Numeric => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
+        FieldType::Boolean => "BOOLEAN".to_string(),  // PostgreSQL native BOOLEAN
+        FieldType::JsonB => "JSONB".to_string(),      // PostgreSQL native JSONB
+        FieldType::Timestamp => "TIMESTAMP WITH TIME ZONE".to_string(), // PostgreSQL timestamp with timezone
     }
 }
 
@@ -724,7 +724,7 @@ fn generate_data_migration_sql(
         .collect();
 
     format!(
-        "INSERT INTO \"{}\" ({}) SELECT {} FROM \"{}\" ORDER BY rowid",
+        "INSERT INTO \"{}\" ({}) SELECT {} FROM \"{}\"",
         target_table,
         target_column_names.join(", "),
         select_columns.join(", "),

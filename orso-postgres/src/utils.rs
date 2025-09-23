@@ -48,7 +48,16 @@ impl Utils {
     pub fn value_to_postgres_param(value: &crate::Value) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
         match value {
             crate::Value::Null => Box::new(Option::<String>::None),
-            crate::Value::Integer(i) => Box::new(*i),
+            crate::Value::Integer(i) => {
+                // Check if the value fits in i32 range for PostgreSQL INTEGER columns
+                if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
+                    // Use i32 to ensure compatibility with INTEGER columns
+                    Box::new(*i as i32)
+                } else {
+                    // Use i64 for BIGINT columns
+                    Box::new(*i)
+                }
+            },
             crate::Value::Real(f) => Box::new(*f),
             crate::Value::Text(s) => Box::new(s.clone()),
             crate::Value::Blob(b) => Box::new(b.clone()),

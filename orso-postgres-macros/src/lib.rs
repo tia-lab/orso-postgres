@@ -1322,9 +1322,9 @@ fn parse_orso_column_attr(
     });
 
     // Generate column definition
-    // For compressed fields, we always use BLOB type
+    // For compressed fields, we always use BYTEA type (PostgreSQL binary data)
     let base_type = if is_compressed {
-        "BLOB".to_string()
+        "BYTEA".to_string()
     } else if is_foreign_key {
         "TEXT".to_string() // Foreign keys are always TEXT (UUID)
     } else {

@@ -212,7 +212,16 @@ impl Value {
     pub fn to_postgres_param(&self) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
         match self {
             Value::Null => Box::new(Option::<String>::None),
-            Value::Integer(i) => Box::new(*i),
+            Value::Integer(i) => {
+                // Check if the value fits in i32 range for PostgreSQL INTEGER columns
+                if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
+                    // Use i32 to ensure compatibility with INTEGER columns
+                    Box::new(*i as i32)
+                } else {
+                    // Use i64 for BIGINT columns
+                    Box::new(*i)
+                }
+            },
             Value::Real(f) => Box::new(*f),
             Value::Text(s) => Box::new(s.clone()),
             Value::Blob(b) => Box::new(b.clone()),
