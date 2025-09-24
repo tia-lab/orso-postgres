@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use crate::Timestamp;
 
 /// Utility functions for ORSO
 #[derive(Debug, Clone)]
@@ -12,8 +13,8 @@ impl Utils {
         Some(Uuid::new_v4().to_string())
     }
 
-    pub fn current_timestamp() -> Option<DateTime<Utc>> {
-        Some(Utc::now())
+    pub fn current_timestamp() -> Option<Timestamp> {
+        Some(Timestamp::now())
     }
 
     pub fn create_timestamp(timestamp: DateTime<Utc>) -> String {

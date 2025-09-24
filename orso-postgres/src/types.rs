@@ -1,5 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value {
@@ -363,6 +363,12 @@ impl std::ops::Deref for Timestamp {
     }
 }
 
+impl Default for Timestamp {
+    fn default() -> Self {
+        Self(Utc.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap())
+    }
+}
+
 impl Serialize for Timestamp {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -401,6 +407,47 @@ impl From<Option<Timestamp>> for Value {
         }
     }
 }
+
+// PostgreSQL trait implementations for Timestamp
+impl tokio_postgres::types::ToSql for Timestamp {
+    fn to_sql(
+        &self,
+        _ty: &tokio_postgres::types::Type,
+        out: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        // Convert DateTime<Utc> to SystemTime for PostgreSQL
+        let system_time = std::time::SystemTime::from(self.0);
+        system_time.to_sql(_ty, out)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        matches!(
+            *ty,
+            tokio_postgres::types::Type::TIMESTAMP | tokio_postgres::types::Type::TIMESTAMPTZ
+        )
+    }
+
+    tokio_postgres::types::to_sql_checked!();
+}
+
+impl<'a> tokio_postgres::types::FromSql<'a> for Timestamp {
+    fn from_sql(
+        ty: &tokio_postgres::types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let system_time = std::time::SystemTime::from_sql(ty, raw)?;
+        let datetime = chrono::DateTime::<chrono::Utc>::from(system_time);
+        Ok(Timestamp(datetime))
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        matches!(
+            *ty,
+            tokio_postgres::types::Type::TIMESTAMP | tokio_postgres::types::Type::TIMESTAMPTZ
+        )
+    }
+}
+
 
 pub fn deserialize_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
