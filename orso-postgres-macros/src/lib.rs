@@ -501,7 +501,6 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process f64 fields
                 if !compressed_f64_fields.is_empty() {
-                    eprintln!("DEBUG: Processing {} f64 compressed fields", compressed_f64_fields.len());
                     let codec = orso_postgres::FloatingCodec::default();
                     if compressed_f64_fields.len() == 1 {
                         // Single field - process individually

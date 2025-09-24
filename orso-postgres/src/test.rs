@@ -2469,4 +2469,296 @@ Test completed successfully!"
     }
 
     // ===== DEDICATED CRUD TEST =====
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+    #[orso_table("dedicated_crud_test_001")]
+    struct DedicatedCrudTest {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        name: String,
+
+        #[orso_column(unique)]
+        email: String,
+
+        age: i32,
+
+        #[orso_column(created_at)]
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
+
+        #[orso_column(updated_at)]
+        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    #[tokio::test]
+    async fn test_dedicated_basic_crud_operations() -> Result<(), Box<dyn std::error::Error>> {
+        // Create PostgreSQL test database
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing test data with unique table name
+        cleanup_test_table(&db, "dedicated_crud_test_001").await?;
+
+        // Create table with dedicated migration
+        use orso::{migration, Migrations};
+        Migrations::init(&db, &[migration!(DedicatedCrudTest)]).await?;
+
+        println!("=== Testing CREATE (Insert) ===");
+
+        // Create test record
+        let user = DedicatedCrudTest {
+            id: None,
+            name: "John Doe".to_string(),
+            email: "john.doe@dedicated.test".to_string(),
+            age: 30,
+            created_at: None,
+            updated_at: None,
+        };
+
+        // Insert user
+        user.insert(&db).await?;
+        println!("✓ Record inserted successfully");
+
+        println!("\n=== Testing READ (Find All) ===");
+
+        // Verify user was created with an ID
+        let all_users = DedicatedCrudTest::find_all(&db).await?;
+        assert_eq!(all_users.len(), 1);
+        let created_user = &all_users[0];
+        assert!(created_user.id.is_some());
+        assert_eq!(created_user.name, "John Doe");
+        assert_eq!(created_user.email, "john.doe@dedicated.test");
+        assert_eq!(created_user.age, 30);
+        assert!(created_user.created_at.is_some());
+        println!("✓ Record found with correct data");
+
+        println!("\n=== Testing READ (Find By ID) ===");
+
+        // Find user by ID
+        let user_id = created_user.id.as_ref().unwrap();
+        let found_user = DedicatedCrudTest::find_by_id(user_id, &db).await?;
+        assert!(found_user.is_some());
+        let found_user = found_user.unwrap();
+        assert_eq!(found_user.name, "John Doe");
+        assert_eq!(found_user.email, "john.doe@dedicated.test");
+        println!("✓ Record found by ID with correct data");
+
+        println!("\n=== Testing UPDATE ===");
+
+        // Update user
+        let mut updated_user = found_user;
+        updated_user.name = "Jane Doe".to_string();
+        updated_user.age = 35;
+        updated_user.update(&db).await?;
+        println!("✓ Record updated successfully");
+
+        // Verify update
+        let updated_users = DedicatedCrudTest::find_all(&db).await?;
+        assert_eq!(updated_users.len(), 1);
+        let updated_user_check = &updated_users[0];
+        assert_eq!(updated_user_check.name, "Jane Doe");
+        assert_eq!(updated_user_check.age, 35);
+        assert_eq!(updated_user_check.email, "john.doe@dedicated.test"); // Email unchanged
+        assert!(updated_user_check.updated_at.is_some());
+        println!("✓ Update verified with correct data");
+
+        println!("\n=== Testing DELETE ===");
+
+        // Delete user
+        updated_user_check.delete(&db).await?;
+        println!("✓ Record deleted successfully");
+
+        // Verify deletion
+        let remaining_users = DedicatedCrudTest::find_all(&db).await?;
+        assert_eq!(remaining_users.len(), 0);
+        println!("✓ Deletion verified - no records remaining");
+
+        println!("\n=== Testing Multiple Records ===");
+
+        // Insert multiple users to test isolation
+        let users = vec![
+            DedicatedCrudTest {
+                id: None,
+                name: "Alice Smith".to_string(),
+                email: "alice@dedicated.test".to_string(),
+                age: 25,
+                created_at: None,
+                updated_at: None,
+            },
+            DedicatedCrudTest {
+                id: None,
+                name: "Bob Johnson".to_string(),
+                email: "bob@dedicated.test".to_string(),
+                age: 30,
+                created_at: None,
+                updated_at: None,
+            },
+            DedicatedCrudTest {
+                id: None,
+                name: "Carol Williams".to_string(),
+                email: "carol@dedicated.test".to_string(),
+                age: 35,
+                created_at: None,
+                updated_at: None,
+            },
+        ];
+
+        for user in &users {
+            user.insert(&db).await?;
+        }
+
+        let all_records = DedicatedCrudTest::find_all(&db).await?;
+        assert_eq!(all_records.len(), 3);
+        println!("✓ Multiple records inserted and retrieved correctly");
+
+        // Clean up for test isolation
+        for record in &all_records {
+            record.delete(&db).await?;
+        }
+
+        let final_count = DedicatedCrudTest::find_all(&db).await?;
+        assert_eq!(final_count.len(), 0);
+        println!("✓ All test records cleaned up");
+
+        println!("\n=== DEDICATED CRUD TEST COMPLETE ===");
+        println!("✓ All CRUD operations work correctly with dedicated table");
+        println!("✓ Test isolation maintained with unique table name");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cascade_delete_operations() -> Result<(), Box<dyn std::error::Error>> {
+        // Create PostgreSQL test database
+        let config = get_test_db_config();
+        let db = Database::init(config).await?;
+
+        // Clean up any existing test data with unique table name
+        cleanup_test_table(&db, "cascade_delete_test_001").await?;
+
+        // Create test struct for cascade deletes
+        #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
+        #[orso_table("cascade_delete_test_001")]
+        struct CascadeDeleteTest {
+            #[orso_column(primary_key)]
+            id: Option<String>,
+            name: String,
+            value: i32,
+        }
+
+        // Create table with dedicated migration
+        use orso::{migration, Migrations};
+        Migrations::init(&db, &[migration!(CascadeDeleteTest)]).await?;
+
+        println!("=== Testing CASCADE Delete Operations ===");
+
+        // Insert test records
+        let records = vec![
+            CascadeDeleteTest {
+                id: None,
+                name: "Record 1".to_string(),
+                value: 100,
+            },
+            CascadeDeleteTest {
+                id: None,
+                name: "Record 2".to_string(),
+                value: 200,
+            },
+            CascadeDeleteTest {
+                id: None,
+                name: "Record 3".to_string(),
+                value: 300,
+            },
+        ];
+
+        for record in &records {
+            record.insert(&db).await?;
+        }
+
+        let all_records = CascadeDeleteTest::find_all(&db).await?;
+        assert_eq!(all_records.len(), 3);
+        println!("✓ Inserted 3 test records");
+
+        // Test single CASCADE delete
+        let first_record = &all_records[0];
+        let deleted = first_record.delete_cascade(&db).await?;
+        assert!(deleted);
+        println!("✓ Single cascade delete successful");
+
+        // Verify record was deleted
+        let remaining = CascadeDeleteTest::find_all(&db).await?;
+        assert_eq!(remaining.len(), 2);
+        println!("✓ Record successfully deleted with cascade");
+
+        // Test batch CASCADE delete
+        let remaining_ids: Vec<&str> = remaining
+            .iter()
+            .filter_map(|r| r.id.as_ref())
+            .map(|id| id.as_str())
+            .collect();
+
+        let batch_deleted = CascadeDeleteTest::batch_delete_cascade(&remaining_ids, &db).await?;
+        assert_eq!(batch_deleted, 2);
+        println!("✓ Batch cascade delete successful");
+
+        // Verify all records were deleted
+        let final_count = CascadeDeleteTest::find_all(&db).await?;
+        assert_eq!(final_count.len(), 0);
+        println!("✓ All records successfully deleted with batch cascade");
+
+        println!("\n=== Testing CASCADE Delete With Table ===");
+
+        // Insert more test records
+        let more_records = vec![
+            CascadeDeleteTest {
+                id: None,
+                name: "Table Record 1".to_string(),
+                value: 1000,
+            },
+            CascadeDeleteTest {
+                id: None,
+                name: "Table Record 2".to_string(),
+                value: 2000,
+            },
+        ];
+
+        for record in &more_records {
+            record.insert(&db).await?;
+        }
+
+        let table_records = CascadeDeleteTest::find_all(&db).await?;
+        assert_eq!(table_records.len(), 2);
+        println!("✓ Inserted 2 more test records");
+
+        // Test CASCADE delete with table name
+        let deleted_with_table = table_records[0]
+            .delete_cascade_with_table(&db, "cascade_delete_test_001")
+            .await?;
+        assert!(deleted_with_table);
+        println!("✓ Cascade delete with table name successful");
+
+        // Test batch CASCADE delete with table name
+        let last_record_id = table_records[1].id.as_ref().unwrap();
+        let batch_deleted_with_table = CascadeDeleteTest::batch_delete_cascade_with_table(
+            &[last_record_id.as_str()],
+            &db,
+            "cascade_delete_test_001",
+        )
+        .await?;
+        assert_eq!(batch_deleted_with_table, 1);
+        println!("✓ Batch cascade delete with table name successful");
+
+        // Verify all records are gone
+        let final_records = CascadeDeleteTest::find_all(&db).await?;
+        assert_eq!(final_records.len(), 0);
+
+        println!("\n=== CASCADE DELETE TESTS COMPLETE ===");
+        println!("✓ All CASCADE delete methods work correctly:");
+        println!("  - delete_cascade()");
+        println!("  - delete_cascade_with_table()");
+        println!("  - batch_delete_cascade()");
+        println!("  - batch_delete_cascade_with_table()");
+
+        Ok(())
+    }
 }

@@ -113,6 +113,14 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
         crate::operations::CrudOperations::delete_with_table(self, db, table_name).await
     }
 
+    async fn delete_cascade(&self, db: &Database) -> Result<bool> {
+        crate::operations::CrudOperations::delete_cascade(self, db).await
+    }
+
+    async fn delete_cascade_with_table(&self, db: &Database, table_name: &str) -> Result<bool> {
+        crate::operations::CrudOperations::delete_cascade_with_table(self, db, table_name).await
+    }
+
     async fn count(db: &Database) -> Result<u64> {
         crate::operations::CrudOperations::count::<Self>(db).await
     }
@@ -169,6 +177,15 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
 
     async fn batch_delete_with_table(ids: &[&str], db: &Database, table_name: &str) -> Result<u64> {
         crate::operations::CrudOperations::batch_delete_with_table::<Self>(ids, db, table_name)
+            .await
+    }
+
+    async fn batch_delete_cascade(ids: &[&str], db: &Database) -> Result<u64> {
+        crate::operations::CrudOperations::batch_delete_cascade::<Self>(ids, db).await
+    }
+
+    async fn batch_delete_cascade_with_table(ids: &[&str], db: &Database, table_name: &str) -> Result<u64> {
+        crate::operations::CrudOperations::batch_delete_cascade_with_table::<Self>(ids, db, table_name)
             .await
     }
 

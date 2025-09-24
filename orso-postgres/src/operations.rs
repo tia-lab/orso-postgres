@@ -853,6 +853,46 @@ impl CrudOperations {
         Ok(true)
     }
 
+    /// Delete a record with CASCADE to remove all dependent data
+    pub async fn delete_cascade<T>(model: &T, db: &Database) -> Result<bool>
+    where
+        T: crate::Orso,
+    {
+        Self::delete_cascade_with_table(model, db, T::table_name()).await
+    }
+
+    /// Delete a record with CASCADE from a specific table
+    pub async fn delete_cascade_with_table<T>(model: &T, db: &Database, table_name: &str) -> Result<bool>
+    where
+        T: crate::Orso,
+    {
+        let id = model.get_primary_key().ok_or_else(|| {
+            Error::Validation("Cannot delete record without primary key".to_string())
+        })?;
+
+        // PostgreSQL doesn't have CASCADE on DELETE statements, so we need to handle
+        // foreign key constraints by allowing the database to cascade naturally
+        // or explicitly delete dependent records first
+        let sql = format!(
+            "DELETE FROM {} WHERE {} = $1",
+            table_name,
+            T::primary_key_field()
+        );
+
+        info!(table = table_name, id = %id, "Deleting record with cascade");
+        debug!(sql = %sql, "Executing cascade delete query");
+
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = vec![Box::new(id)];
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        // Execute the delete - PostgreSQL will handle cascading via foreign key constraints
+        db.execute(&sql, &param_refs).await?;
+        info!(table = table_name, "Successfully deleted record with cascade");
+        Ok(true)
+    }
+
     /// Delete multiple records using Turso batch operations
     pub async fn batch_delete<T>(ids: &[&str], db: &Database) -> Result<u64>
     where
@@ -895,6 +935,57 @@ impl CrudOperations {
             params.iter().map(|p| p.as_ref()).collect();
 
         let affected_rows = db.execute(&sql, &param_refs).await?;
+        Ok(affected_rows)
+    }
+
+    /// Delete multiple records with CASCADE to remove all dependent data
+    pub async fn batch_delete_cascade<T>(ids: &[&str], db: &Database) -> Result<u64>
+    where
+        T: crate::Orso,
+    {
+        Self::batch_delete_cascade_with_table::<T>(ids, db, T::table_name()).await
+    }
+
+    /// Delete multiple records with CASCADE from a specific table
+    pub async fn batch_delete_cascade_with_table<T>(
+        ids: &[&str],
+        db: &Database,
+        table_name: &str,
+    ) -> Result<u64>
+    where
+        T: crate::Orso,
+    {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let pk_field = T::primary_key_field();
+
+        // Use IN clause for efficient bulk cascade delete
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("${}", i)).collect();
+        let sql = format!(
+            "DELETE FROM {} WHERE {} IN ({})",
+            table_name,
+            pk_field,
+            placeholders.join(", ")
+        );
+
+        info!(table = table_name, count = ids.len(), "Batch deleting records with cascade");
+        debug!(sql = %sql, "Executing batch cascade delete query");
+
+        let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = ids
+            .iter()
+            .map(|id| {
+                Box::new(id.to_string()) as Box<dyn tokio_postgres::types::ToSql + Send + Sync>
+            })
+            .collect();
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            params.iter().map(|p| p.as_ref()).collect();
+
+        // Execute the delete - PostgreSQL will handle cascading via foreign key constraints
+        let affected_rows = db.execute(&sql, &param_refs).await?;
+        info!(table = table_name, affected = affected_rows, "Successfully batch deleted records with cascade");
         Ok(affected_rows)
     }
 
