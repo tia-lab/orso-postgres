@@ -3,7 +3,7 @@ mod tests {
     use crate::{
         self as orso, self as orso_postgres, FloatingCodec, IntegerCodec, Migrations, Utils,
     };
-    use orso::{
+    use orso_postgres::{
         migration, Database, DatabaseConfig, Filter, FilterOperator, Operator, Orso, Pagination,
         Sort, SortOrder, Value,
     };

@@ -142,7 +142,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
     // Generate only the trait implementation
     let expanded = quote! {
-        impl #impl_generics orso::Orso for #name #ty_generics #where_clause {
+        impl #impl_generics orso_postgres::Orso for #name #ty_generics #where_clause {
             fn table_name() -> &'static str {
                 #table_name
             }
@@ -187,7 +187,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 vec![#(#field_names),*]
             }
 
-            fn field_types() -> Vec<orso::FieldType> {
+            fn field_types() -> Vec<orso_postgres::FieldType> {
                 vec![#(#field_types),*]
             }
 
@@ -214,7 +214,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 )
             }
 
-            fn to_map(&self) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
+            fn to_map(&self) -> orso_postgres::Result<std::collections::HashMap<String, orso_postgres::Value>> {
                 use serde_json;
                 let json = serde_json::to_value(self)?;
                 let map: std::collections::HashMap<String, serde_json::Value> =
@@ -305,18 +305,18 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 // Batch process compressed fields by type
                 // Process i64 fields
                 if !compressed_i64_fields.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_i64_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_i64_fields.into_iter().next().unwrap();
                         match codec.compress_i64(&vec) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(_) => {
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -328,7 +328,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_i64(&arrays) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -336,12 +336,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 for (field_name, vec) in compressed_i64_fields {
                                     match codec.compress_i64(&vec) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -353,18 +353,18 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process u64 fields
                 if !compressed_u64_fields.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_u64_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_u64_fields.into_iter().next().unwrap();
                         match codec.compress_u64(&vec) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(_) => {
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -376,7 +376,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_u64(&arrays) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -384,12 +384,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 for (field_name, vec) in compressed_u64_fields {
                                     match codec.compress_u64(&vec) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -401,19 +401,19 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process i32 fields (compress as i64 for storage efficiency)
                 if !compressed_i32_fields.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_i32_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_i32_fields.into_iter().next().unwrap();
                         let i64_vec: Vec<i64> = vec.into_iter().map(|x| x as i64).collect();
                         match codec.compress_i64(&i64_vec) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(_) => {
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -425,7 +425,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_i64(&arrays) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -434,12 +434,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                     let i64_vec: Vec<i64> = vec.into_iter().map(|x| x as i64).collect();
                                     match codec.compress_i64(&i64_vec) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -451,19 +451,19 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process u32 fields (compress as u64 for storage efficiency)
                 if !compressed_u32_fields.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_u32_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_u32_fields.into_iter().next().unwrap();
                         let u64_vec: Vec<u64> = vec.into_iter().map(|x| x as u64).collect();
                         match codec.compress_u64(&u64_vec) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(_) => {
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -475,7 +475,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_u64(&arrays) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -484,12 +484,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                     let u64_vec: Vec<u64> = vec.into_iter().map(|x| x as u64).collect();
                                     match codec.compress_u64(&u64_vec) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -502,20 +502,20 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 // Process f64 fields
                 if !compressed_f64_fields.is_empty() {
                     eprintln!("DEBUG: Processing {} f64 compressed fields", compressed_f64_fields.len());
-                    let codec = orso::FloatingCodec::default();
+                    let codec = orso_postgres::FloatingCodec::default();
                     if compressed_f64_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_f64_fields.into_iter().next().unwrap();
                         match codec.compress_f64(&vec, None) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(e) => {
                                 // DEBUG: Print compression error
                                 eprintln!("F64 compression failed for field {}: {:?}", field_name, e);
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -527,7 +527,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_f64(&arrays, None) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -535,12 +535,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 for (field_name, vec) in compressed_f64_fields {
                                     match codec.compress_f64(&vec, None) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -552,18 +552,18 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process f32 fields
                 if !compressed_f32_fields.is_empty() {
-                    let codec = orso::FloatingCodec::default();
+                    let codec = orso_postgres::FloatingCodec::default();
                     if compressed_f32_fields.len() == 1 {
                         // Single field - process individually
                         let (field_name, vec) = compressed_f32_fields.into_iter().next().unwrap();
                         match codec.compress_f32(&vec, None) {
                             Ok(compressed) => {
-                                result.insert(field_name, orso::Value::Blob(compressed));
+                                result.insert(field_name, orso_postgres::Value::Blob(compressed));
                             }
                             Err(_) => {
                                 // Fallback to JSON string
                                 if let Some(original_value) = map.get(&field_name) {
-                                    result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                    result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                 }
                             }
                         }
@@ -575,7 +575,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                         match codec.compress_many_f32(&arrays, None) {
                             Ok(compressed_blobs) => {
                                 for (field_name, blob) in field_names.into_iter().zip(compressed_blobs.into_iter()) {
-                                    result.insert(field_name, orso::Value::Blob(blob));
+                                    result.insert(field_name, orso_postgres::Value::Blob(blob));
                                 }
                             }
                             Err(_) => {
@@ -583,12 +583,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 for (field_name, vec) in compressed_f32_fields {
                                     match codec.compress_f32(&vec, None) {
                                         Ok(compressed) => {
-                                            result.insert(field_name, orso::Value::Blob(compressed));
+                                            result.insert(field_name, orso_postgres::Value::Blob(compressed));
                                         }
                                         Err(_) => {
                                             // Ultimate fallback to JSON string
                                             if let Some(original_value) = map.get(&field_name) {
-                                                result.insert(field_name, orso::Value::Text(serde_json::to_string(original_value)?));
+                                                result.insert(field_name, orso_postgres::Value::Text(serde_json::to_string(original_value)?));
                                             }
                                         }
                                     }
@@ -617,24 +617,24 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     }
 
                     let value = match v {
-                        serde_json::Value::Null => orso::Value::Null,
-                        serde_json::Value::Bool(b) => orso::Value::Boolean(b),
+                        serde_json::Value::Null => orso_postgres::Value::Null,
+                        serde_json::Value::Bool(b) => orso_postgres::Value::Boolean(b),
                         serde_json::Value::Number(n) => {
                             if let Some(i) = n.as_i64() {
-                                orso::Value::Integer(i)
+                                orso_postgres::Value::Integer(i)
                             } else if let Some(f) = n.as_f64() {
-                                orso::Value::Real(f)
+                                orso_postgres::Value::Real(f)
                             } else {
-                                orso::Value::Text(n.to_string())
+                                orso_postgres::Value::Text(n.to_string())
                             }
                         }
-                        serde_json::Value::String(s) => orso::Value::Text(s),
+                        serde_json::Value::String(s) => orso_postgres::Value::Text(s),
                         serde_json::Value::Array(arr) => {
                             // Use field type metadata to determine correct array conversion
                             if let Some(pos) = field_names.iter().position(|&name| name == k) {
                                 if let Some(field_type) = field_types.get(pos) {
                                     match field_type {
-                                        orso::FieldType::IntegerArray => {
+                                        orso_postgres::FieldType::IntegerArray => {
                                             // Convert JSON array to Vec<i32> - handle u32 overflow properly
                                             let vec: Result<Vec<i32>, _> = arr.iter()
                                                 .map(|v| {
@@ -649,11 +649,11 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                                 })
                                                 .collect();
                                             match vec {
-                                                Ok(v) => orso::Value::IntegerArray(v),
-                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                                Ok(v) => orso_postgres::Value::IntegerArray(v),
+                                                Err(_) => orso_postgres::Value::Text(serde_json::to_string(&arr)?),
                                             }
                                         }
-                                        orso::FieldType::BigIntArray => {
+                                        orso_postgres::FieldType::BigIntArray => {
                                             // Convert JSON array to Vec<i64> - handle u64 overflow properly
                                             let vec: Result<Vec<i64>, _> = arr.iter()
                                                 .map(|v| {
@@ -669,30 +669,30 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                                 })
                                                 .collect();
                                             match vec {
-                                                Ok(v) => orso::Value::BigIntArray(v),
-                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                                Ok(v) => orso_postgres::Value::BigIntArray(v),
+                                                Err(_) => orso_postgres::Value::Text(serde_json::to_string(&arr)?),
                                             }
                                         }
-                                        orso::FieldType::NumericArray => {
+                                        orso_postgres::FieldType::NumericArray => {
                                             // Convert JSON array to Vec<f64>
                                             let vec: Result<Vec<f64>, _> = arr.iter()
                                                 .map(|v| v.as_f64().ok_or("not f64"))
                                                 .collect();
                                             match vec {
-                                                Ok(v) => orso::Value::NumericArray(v),
-                                                Err(_) => orso::Value::Text(serde_json::to_string(&arr)?),
+                                                Ok(v) => orso_postgres::Value::NumericArray(v),
+                                                Err(_) => orso_postgres::Value::Text(serde_json::to_string(&arr)?),
                                             }
                                         }
-                                        _ => orso::Value::Text(serde_json::to_string(&arr)?),
+                                        _ => orso_postgres::Value::Text(serde_json::to_string(&arr)?),
                                     }
                                 } else {
-                                    orso::Value::Text(serde_json::to_string(&arr)?)
+                                    orso_postgres::Value::Text(serde_json::to_string(&arr)?)
                                 }
                             } else {
-                                orso::Value::Text(serde_json::to_string(&arr)?)
+                                orso_postgres::Value::Text(serde_json::to_string(&arr)?)
                             }
                         },
-                        serde_json::Value::Object(_) => orso::Value::Text(serde_json::to_string(&v)?),
+                        serde_json::Value::Object(_) => orso_postgres::Value::Text(serde_json::to_string(&v)?),
                     };
                     result.insert(k, value);
                 }
@@ -700,7 +700,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 Ok(result)
             }
 
-            fn from_map(mut map: std::collections::HashMap<String, orso::Value>) -> orso::Result<Self> {
+            fn from_map(mut map: std::collections::HashMap<String, orso_postgres::Value>) -> orso_postgres::Result<Self> {
                 use serde_json;
                 let mut json_map = serde_json::Map::new();
 
@@ -726,7 +726,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                     if is_compressed {
                         match v {
-                            orso::Value::Blob(blob) => {
+                            orso_postgres::Value::Blob(blob) => {
                                 // Check if this is temporary migration JSON data
                                 if blob.len() > 15 && blob.starts_with(b"__TEMP_JSON__") {
                                     // Extract JSON string and parse it
@@ -759,24 +759,24 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                             _ => {
                                 // Non-blob compressed fields - handle individually
                                 let json_value = match v {
-                                    orso::Value::Text(s) => {
+                                    orso_postgres::Value::Text(s) => {
                                         // Try to parse as JSON array
                                         match serde_json::from_str(s) {
                                             Ok(val) => val,
                                             Err(_) => serde_json::Value::String(s.clone()),
                                         }
                                     }
-                                    orso::Value::Null => serde_json::Value::Null,
-                                    orso::Value::Boolean(b) => serde_json::Value::Bool(*b),
-                                    orso::Value::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-                                    orso::Value::Real(f) => {
+                                    orso_postgres::Value::Null => serde_json::Value::Null,
+                                    orso_postgres::Value::Boolean(b) => serde_json::Value::Bool(*b),
+                                    orso_postgres::Value::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
+                                    orso_postgres::Value::Real(f) => {
                                         if let Some(n) = serde_json::Number::from_f64(*f) {
                                             serde_json::Value::Number(n)
                                         } else {
                                             serde_json::Value::String(f.to_string())
                                         }
                                     }
-                                    orso::Value::Blob(blob) => {
+                                    orso_postgres::Value::Blob(blob) => {
                                         // This shouldn't happen for compressed fields that are already blobs
                                         serde_json::Value::Array(
                                             blob.iter()
@@ -784,21 +784,21 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             .collect()
                                         )
                                     }
-                                    orso::Value::IntegerArray(arr) => {
+                                    orso_postgres::Value::IntegerArray(arr) => {
                                         serde_json::Value::Array(
                                             arr.iter()
                                             .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
                                             .collect()
                                         )
                                     }
-                                    orso::Value::BigIntArray(arr) => {
+                                    orso_postgres::Value::BigIntArray(arr) => {
                                         serde_json::Value::Array(
                                             arr.iter()
                                             .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
                                             .collect()
                                         )
                                     }
-                                    orso::Value::NumericArray(arr) => {
+                                    orso_postgres::Value::NumericArray(arr) => {
                                         serde_json::Value::Array(
                                             arr.iter()
                                             .map(|f| {
@@ -821,7 +821,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 // Batch process compressed fields by type
                 // Process i64 fields
                 if !compressed_i64_blobs.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_i64_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_i64_blobs.into_iter().next().unwrap();
@@ -879,7 +879,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process u64 fields (currently we don't distinguish u64 from i64 in decompression)
                 if !compressed_u64_blobs.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_u64_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_u64_blobs.into_iter().next().unwrap();
@@ -937,7 +937,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process i32 fields (convert from i64 back to i32)
                 if !compressed_i32_blobs.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_i32_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_i32_blobs.into_iter().next().unwrap();
@@ -998,7 +998,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process u32 fields (convert from u64 back to u32)
                 if !compressed_u32_blobs.is_empty() {
-                    let codec = orso::IntegerCodec::default();
+                    let codec = orso_postgres::IntegerCodec::default();
                     if compressed_u32_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_u32_blobs.into_iter().next().unwrap();
@@ -1059,7 +1059,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process f64 fields
                 if !compressed_f64_blobs.is_empty() {
-                    let codec = orso::FloatingCodec::default();
+                    let codec = orso_postgres::FloatingCodec::default();
                     if compressed_f64_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_f64_blobs.into_iter().next().unwrap();
@@ -1135,7 +1135,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 // Process f32 fields
                 if !compressed_f32_blobs.is_empty() {
-                    let codec = orso::FloatingCodec::default();
+                    let codec = orso_postgres::FloatingCodec::default();
                     if compressed_f32_blobs.len() == 1 {
                         // Single field - process individually
                         let (field_name, blob) = compressed_f32_blobs.into_iter().next().unwrap();
@@ -1217,12 +1217,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     }
 
                     let json_value = match v {
-                        orso::Value::Null => serde_json::Value::Null,
-                        orso::Value::Boolean(b) => serde_json::Value::Bool(*b),
-                        orso::Value::Integer(i) => {
+                        orso_postgres::Value::Null => serde_json::Value::Null,
+                        orso_postgres::Value::Boolean(b) => serde_json::Value::Bool(*b),
+                        orso_postgres::Value::Integer(i) => {
                             // Check if this field should be a boolean based on field type
                             if let Some(pos) = field_names.iter().position(|&name| name == *k) {
-                                if matches!(field_types.get(pos), Some(orso::FieldType::Boolean)) {
+                                if matches!(field_types.get(pos), Some(orso_postgres::FieldType::Boolean)) {
                                     // This is a boolean field, convert 0/1 to bool
                                     serde_json::Value::Bool(*i != 0)
                                 } else {
@@ -1232,14 +1232,14 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 serde_json::Value::Number(serde_json::Number::from(*i))
                             }
                         },
-                        orso::Value::Real(f) => {
+                        orso_postgres::Value::Real(f) => {
                             if let Some(n) = serde_json::Number::from_f64(*f) {
                                 serde_json::Value::Number(n)
                             } else {
                                 serde_json::Value::String(f.to_string())
                             }
                         }
-                        orso::Value::Text(s) => {
+                        orso_postgres::Value::Text(s) => {
                             // Check if this might be a database datetime that needs conversion
                             if s.len() == 19 && s.chars().nth(4) == Some('-') && s.chars().nth(7) == Some('-') && s.chars().nth(10) == Some(' ') {
                                 // This looks like datetime format: "2025-09-13 10:50:43"
@@ -1250,28 +1250,28 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 serde_json::Value::String(s.clone())
                             }
                         },
-                        orso::Value::Blob(b) => {
+                        orso_postgres::Value::Blob(b) => {
                             serde_json::Value::Array(
                                 b.iter()
                                 .map(|byte| serde_json::Value::Number(serde_json::Number::from(*byte)))
                                 .collect()
                             )
                         }
-                        orso::Value::IntegerArray(arr) => {
+                        orso_postgres::Value::IntegerArray(arr) => {
                             serde_json::Value::Array(
                                 arr.iter()
                                 .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
                                 .collect()
                             )
                         }
-                        orso::Value::BigIntArray(arr) => {
+                        orso_postgres::Value::BigIntArray(arr) => {
                             serde_json::Value::Array(
                                 arr.iter()
                                 .map(|i| serde_json::Value::Number(serde_json::Number::from(*i)))
                                 .collect()
                             )
                         }
-                        orso::Value::NumericArray(arr) => {
+                        orso_postgres::Value::NumericArray(arr) => {
                             serde_json::Value::Array(
                                 arr.iter()
                                 .map(|f| {
@@ -1292,33 +1292,33 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 match serde_json::from_value(json_value) {
                     Ok(result) => Ok(result),
-                    Err(e) => Err(orso::Error::Serialization(e.to_string()))
+                    Err(e) => Err(orso_postgres::Error::Serialization(e.to_string()))
                 }
             }
 
 
             // Utility methods
-            fn row_to_map(row: &orso_postgres::tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
+            fn row_to_map(row: &orso_postgres::tokio_postgres::Row) -> orso_postgres::Result<std::collections::HashMap<String, orso_postgres::Value>> {
                 let mut map = std::collections::HashMap::new();
                 for (i, column) in row.columns().iter().enumerate() {
                     let column_name = column.name();
-                    let value = orso::Value::from_postgres_row(row, i)?;
+                    let value = orso_postgres::Value::from_postgres_row(row, i)?;
                     map.insert(column_name.to_string(), value);
                 }
                 Ok(map)
             }
 
-            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn orso_postgres::tokio_postgres::types::ToSql + Send + Sync> {
+            fn value_to_postgres_param(value: &orso_postgres::Value) -> Box<dyn orso_postgres::tokio_postgres::types::ToSql + Send + Sync> {
                 match value {
-                    orso::Value::Null => Box::new(Option::<String>::None),
-                    orso::Value::Integer(i) => Box::new(*i),
-                    orso::Value::Real(f) => Box::new(*f),
-                    orso::Value::Text(s) => Box::new(s.clone()),
-                    orso::Value::Blob(b) => Box::new(b.clone()),
-                    orso::Value::Boolean(b) => Box::new(*b),
-                    orso::Value::IntegerArray(arr) => Box::new(arr.clone()),
-                    orso::Value::BigIntArray(arr) => Box::new(arr.clone()),
-                    orso::Value::NumericArray(arr) => Box::new(arr.clone()),
+                    orso_postgres::Value::Null => Box::new(Option::<String>::None),
+                    orso_postgres::Value::Integer(i) => Box::new(*i),
+                    orso_postgres::Value::Real(f) => Box::new(*f),
+                    orso_postgres::Value::Text(s) => Box::new(s.clone()),
+                    orso_postgres::Value::Blob(b) => Box::new(b.clone()),
+                    orso_postgres::Value::Boolean(b) => Box::new(*b),
+                    orso_postgres::Value::IntegerArray(arr) => Box::new(arr.clone()),
+                    orso_postgres::Value::BigIntArray(arr) => Box::new(arr.clone()),
+                    orso_postgres::Value::NumericArray(arr) => Box::new(arr.clone()),
                 }
             }
         }
@@ -1517,16 +1517,16 @@ fn map_vec_to_array_field_type(inner_type: &syn::Type) -> proc_macro2::TokenStre
         if let Some(segment) = type_path.path.segments.last() {
             let type_name = segment.ident.to_string();
             return match type_name.as_str() {
-                "i64" | "u64" => quote! { orso::FieldType::BigIntArray },
+                "i64" | "u64" => quote! { orso_postgres::FieldType::BigIntArray },
                 "i32" | "i16" | "i8" | "u32" | "u16" | "u8" => {
-                    quote! { orso::FieldType::IntegerArray }
+                    quote! { orso_postgres::FieldType::IntegerArray }
                 }
-                "f64" | "f32" => quote! { orso::FieldType::NumericArray },
-                _ => quote! { orso::FieldType::Text }, // Fallback for other Vec types
+                "f64" | "f32" => quote! { orso_postgres::FieldType::NumericArray },
+                _ => quote! { orso_postgres::FieldType::Text }, // Fallback for other Vec types
             };
         }
     }
-    quote! { orso::FieldType::Text } // Fallback
+    quote! { orso_postgres::FieldType::Text } // Fallback
 }
 
 // Map field types to FieldType enum
@@ -1543,7 +1543,7 @@ fn map_field_type(
             if type_name == "Vec" {
                 if is_compressed {
                     // Compressed Vec fields are stored as BYTEA blobs, represented as Text in FieldType
-                    return quote! { orso::FieldType::Text };
+                    return quote! { orso_postgres::FieldType::Text };
                 } else {
                     // Uncompressed Vec fields use PostgreSQL native arrays
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -1556,13 +1556,13 @@ fn map_field_type(
             }
 
             return match type_name.as_str() {
-                "String" => quote! { orso::FieldType::Text },
-                "i64" => quote! { orso::FieldType::BigInt },
-                "i32" | "i16" | "i8" => quote! { orso::FieldType::Integer },
-                "u64" => quote! { orso::FieldType::BigInt },
-                "u32" | "u16" | "u8" => quote! { orso::FieldType::Integer },
-                "f64" | "f32" => quote! { orso::FieldType::Numeric },
-                "bool" => quote! { orso::FieldType::Boolean },
+                "String" => quote! { orso_postgres::FieldType::Text },
+                "i64" => quote! { orso_postgres::FieldType::BigInt },
+                "i32" | "i16" | "i8" => quote! { orso_postgres::FieldType::Integer },
+                "u64" => quote! { orso_postgres::FieldType::BigInt },
+                "u32" | "u16" | "u8" => quote! { orso_postgres::FieldType::Integer },
+                "f64" | "f32" => quote! { orso_postgres::FieldType::Numeric },
+                "bool" => quote! { orso_postgres::FieldType::Boolean },
                 "Option" => {
                     // Handle Option<T> types - get the inner type
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -1570,13 +1570,13 @@ fn map_field_type(
                             return map_field_type(inner_type, _field, is_compressed);
                         }
                     }
-                    quote! { orso::FieldType::Text }
+                    quote! { orso_postgres::FieldType::Text }
                 }
-                _ => quote! { orso::FieldType::Text },
+                _ => quote! { orso_postgres::FieldType::Text },
             };
         }
     }
-    quote! { orso::FieldType::Text }
+    quote! { orso_postgres::FieldType::Text }
 }
 
 // Check if a type is Option<T>
