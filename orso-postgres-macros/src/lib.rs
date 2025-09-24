@@ -727,8 +727,21 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     if is_compressed {
                         match v {
                             orso::Value::Blob(blob) => {
+                                // Check if this is temporary migration JSON data
+                                if blob.len() > 15 && blob.starts_with(b"__TEMP_JSON__") {
+                                    // Extract JSON string and parse it
+                                    if let Ok(json_str) = std::str::from_utf8(&blob[13..]) {
+                                        if let Ok(json_array) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                            if let serde_json::Value::Array(_) = json_array {
+                                                // Add to the final JSON map directly, skip compression processing
+                                                json_map.insert(k.clone(), json_array);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
                                 // Check blob header to determine the correct type
-                                if blob.len() >= 7 && &blob[0..4] == b"ORSO" {
+                                else if blob.len() >= 7 && &blob[0..4] == b"ORSO" {
                                     match blob[6] {
                                         0 => compressed_i64_blobs.insert(k.clone(), blob.clone()),
                                         1 => compressed_u64_blobs.insert(k.clone(), blob.clone()),
@@ -1285,7 +1298,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
 
             // Utility methods
-            fn row_to_map(row: &tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
+            fn row_to_map(row: &orso::tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
                 let mut map = std::collections::HashMap::new();
                 for (i, column) in row.columns().iter().enumerate() {
                     let column_name = column.name();
@@ -1295,7 +1308,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 Ok(map)
             }
 
-            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
+            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn orso::tokio_postgres::types::ToSql + Send + Sync> {
                 match value {
                     orso::Value::Null => Box::new(Option::<String>::None),
                     orso::Value::Integer(i) => Box::new(*i),
@@ -1391,7 +1404,7 @@ fn parse_orso_column_attr(
         column_def.push_str(" PRIMARY KEY");
         // Add default for primary key if it's TEXT type
         if base_type == "TEXT" {
-            column_def.push_str(" DEFAULT gen_random_uuid()");  // PostgreSQL UUID generation
+            column_def.push_str(" DEFAULT gen_random_uuid()"); // PostgreSQL UUID generation
         }
     }
     // Add NOT NULL for non-Option types (except primary keys which are already handled)
@@ -1407,7 +1420,7 @@ fn parse_orso_column_attr(
 
     // Add defaults for timestamp columns
     if is_created_at || is_updated_at {
-        column_def.push_str(" DEFAULT NOW()");  // PostgreSQL timestamp generation
+        column_def.push_str(" DEFAULT NOW()"); // PostgreSQL timestamp generation
     }
 
     column_def
@@ -1450,12 +1463,12 @@ fn map_rust_type_to_sql_type(rust_type: &syn::Type, is_compressed: bool) -> Stri
 
             return match type_name.as_str() {
                 "String" => "TEXT".to_string(),
-                "i64" => "BIGINT".to_string(),           // PostgreSQL BIGINT for i64
+                "i64" => "BIGINT".to_string(), // PostgreSQL BIGINT for i64
                 "i32" | "i16" | "i8" => "INTEGER".to_string(),
-                "u64" => "BIGINT".to_string(),           // PostgreSQL BIGINT for u64
+                "u64" => "BIGINT".to_string(), // PostgreSQL BIGINT for u64
                 "u32" | "u16" | "u8" => "INTEGER".to_string(),
                 "f64" | "f32" => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
-                "bool" => "BOOLEAN".to_string(),         // PostgreSQL native BOOLEAN type
+                "bool" => "BOOLEAN".to_string(),                 // PostgreSQL native BOOLEAN type
                 "DateTime" => "TIMESTAMP WITHOUT TIME ZONE".to_string(), // UTC timestamp without timezone
                 "Option" => {
                     // Handle Option<T> types
@@ -1505,7 +1518,9 @@ fn map_vec_to_array_field_type(inner_type: &syn::Type) -> proc_macro2::TokenStre
             let type_name = segment.ident.to_string();
             return match type_name.as_str() {
                 "i64" | "u64" => quote! { orso::FieldType::BigIntArray },
-                "i32" | "i16" | "i8" | "u32" | "u16" | "u8" => quote! { orso::FieldType::IntegerArray },
+                "i32" | "i16" | "i8" | "u32" | "u16" | "u8" => {
+                    quote! { orso::FieldType::IntegerArray }
+                }
                 "f64" | "f32" => quote! { orso::FieldType::NumericArray },
                 _ => quote! { orso::FieldType::Text }, // Fallback for other Vec types
             };
@@ -1515,7 +1530,11 @@ fn map_vec_to_array_field_type(inner_type: &syn::Type) -> proc_macro2::TokenStre
 }
 
 // Map field types to FieldType enum
-fn map_field_type(rust_type: &syn::Type, _field: &syn::Field, is_compressed: bool) -> proc_macro2::TokenStream {
+fn map_field_type(
+    rust_type: &syn::Type,
+    _field: &syn::Field,
+    is_compressed: bool,
+) -> proc_macro2::TokenStream {
     if let syn::Type::Path(type_path) = rust_type {
         if let Some(segment) = type_path.path.segments.last() {
             let type_name = segment.ident.to_string();

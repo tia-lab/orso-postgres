@@ -786,13 +786,13 @@ fn generate_type_conversion(source_type: &str, target_type: &str, column_name: &
             )
         }
         ("ARRAY", "BYTEA") => {
-            // Convert generic PostgreSQL ARRAY to BYTEA for compression
-            // This handles cases where PostgreSQL reports the type as just "ARRAY"
+            // Store the array as JSON text in BYTEA for now
+            // The application will detect this is JSON text and handle compression on next access
             format!(
                 "CASE
                     WHEN \"{}\" IS NULL THEN NULL::BYTEA
                     WHEN array_length(\"{}\", 1) IS NULL THEN NULL::BYTEA
-                    ELSE convert_to(array_to_json(\"{}\")::text, 'UTF8')
+                    ELSE convert_to('__TEMP_JSON__' || array_to_json(\"{}\")::text, 'UTF8')
                  END",
                 column_name, column_name, column_name
             )
