@@ -653,7 +653,7 @@ mod tests {
     #[tokio::test]
     async fn test_migration_no_change_detection() -> Result<(), Box<dyn std::error::Error>> {
         use crate as orso;
-        use orso::{migration, Database, DatabaseConfig, Migrations, Orso};
+        use orso_postgres::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
         #[orso_table("migration_test_006")]
@@ -1094,7 +1094,7 @@ Test completed successfully!"
 
     #[tokio::test]
     async fn batch_compression_test() -> Result<(), Box<dyn std::error::Error>> {
-        use orso::{migration, Database, DatabaseConfig, Migrations, Orso};
+        use orso_postgres::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
@@ -1436,7 +1436,7 @@ Test completed successfully!"
     }
     #[tokio::test]
     async fn batch_operations_test() -> Result<(), Box<dyn std::error::Error>> {
-        use orso::{migration, Database, DatabaseConfig, Migrations, Orso};
+        use orso_postgres::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
@@ -2413,7 +2413,7 @@ Test completed successfully!"
         assert!(migration_sql.contains("f64_array DOUBLE PRECISION[]"));
 
         // Test with default extreme values
-        let test_data = TestArrayFieldTypes::default();
+        //let test_data = TestArrayFieldTypes::default();
         // DEBUG: Check to_map conversion for this test
         let test_data = TestArrayFieldTypes::default();
         let map = test_data.to_map()?;
@@ -2467,4 +2467,6 @@ Test completed successfully!"
 
         Ok(())
     }
+
+    // ===== DEDICATED CRUD TEST =====
 }

@@ -888,7 +888,7 @@ async fn check_backups_retention(
             age_days > config.retention_days() as u64;
 
         if should_delete {
-            let drop_sql = format!("DROP TABLE IF EXISTS \"{}\"", old_table.name);
+            let drop_sql = format!("DROP TABLE IF EXISTS \"{}\" CASCADE", old_table.name);
             db.execute(&drop_sql, &[]).await.map_err(|e| {
                 Error::DatabaseError(format!("Failed to drop old migration table: {}", e))
             })?;
