@@ -1316,7 +1316,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                 match serde_json::from_value(json_value) {
                     Ok(result) => Ok(result),
-                    Err(e) => Err(orso_postgres::Error::Serialization(e.to_string()))
+                    Err(e) => Err(orso_postgres::Error::serialization(e.to_string()))
                 }
             }
 

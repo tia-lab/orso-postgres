@@ -38,7 +38,11 @@ impl Database {
         let pg_config: tokio_postgres::Config = config
             .connection_string
             .parse()
-            .map_err(|e| Error::Config(format!("Invalid connection string: {}", e)))?;
+            .map_err(|e| Error::Config {
+                message: format!("Invalid connection string: {}", e),
+                parameter: Some("connection_string".to_string()),
+                source: Some(Box::new(e)),
+            })?;
 
         let mgr_config = ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
@@ -48,7 +52,10 @@ impl Database {
         let pool = Pool::builder(mgr)
             .max_size(config.max_pool_size)
             .build()
-            .map_err(|e| Error::Connection(format!("Failed to create connection pool: {}", e)))?;
+            .map_err(|e| Error::Connection {
+                message: format!("Failed to create connection pool: {}", e),
+                source: Some(Box::new(e)),
+            })?;
 
         debug!(
             "PostgreSQL connection pool established with max_size: {}",

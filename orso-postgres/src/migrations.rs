@@ -198,7 +198,7 @@ where
 
         db.execute(&create_sql, &[])
             .await
-            .map_err(|e| Error::DatabaseError(format!("Failed to create table: {}", e)))?;
+            .map_err(|e| Error::migration(format!("Failed to create table: {}", e), None, Some("create_table".to_string())))?;
 
         return Ok(MigrationResult {
             action: MigrationAction::TableCreated,
@@ -277,8 +277,9 @@ where
     let primary_key_field = T::primary_key_field();
 
     if field_names.len() != field_types.len() || field_names.len() != field_nullable.len() {
-        return Err(Error::DatabaseError(
-            "Mismatched field arrays in Orso implementation".to_string(),
+        return Err(Error::internal(
+            "Mismatched field arrays in Orso implementation",
+            Some("migration".to_string()),
         ));
     }
 
@@ -356,7 +357,7 @@ async fn check_table_exists(db: &Database, table_name: &str) -> Result<bool, Err
     let rows = db
         .query(query, &param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to check table existence: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to check table existence: {}", e), None, Some("table_exists".to_string())))?;
 
     Ok(!rows.is_empty())
 }
@@ -386,7 +387,7 @@ async fn get_current_table_schema(
     let rows = db
         .query(query, &param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to get table info: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to get table info: {}", e), None, Some("table_info".to_string())))?;
 
     let mut columns = Vec::new();
     let mut column_info_map = std::collections::HashMap::new();
@@ -437,7 +438,7 @@ async fn get_current_table_schema(
     let constraint_rows = db
         .query(constraint_query, &constraint_param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to get constraint info: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to get constraint info: {}", e), None, Some("constraint_info".to_string())))?;
 
     // Process constraint information and update column flags
     for row in constraint_rows {
@@ -478,7 +479,7 @@ async fn get_current_table_schema(
     let fk_rows = db
         .query(fk_query, &fk_param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to get foreign key list: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to get foreign key list: {}", e), None, Some("foreign_key_list".to_string())))?;
 
     for row in fk_rows {
         let column_name: String = row.get(0);
@@ -614,7 +615,7 @@ async fn perform_zero_loss_migration(
 
     db.execute(&create_sql, &[])
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to create temp table: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to create temp table: {}", e), None, Some("create_temp_table".to_string())))?;
 
     // Step 2: Copy data from old table to new table (preserving row order)
     let copy_sql = generate_data_migration_sql(
@@ -627,26 +628,26 @@ async fn perform_zero_loss_migration(
     let _rows_affected = db
         .execute(&copy_sql, &[])
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to migrate data: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to migrate data: {}", e), None, Some("migrate_data".to_string())))?;
 
     // Step 3: Rename original table to backup
     let rename_to_backup = format!("ALTER TABLE {} RENAME TO {}", table_name, backup_name);
     db.execute(&rename_to_backup, &[])
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to create backup: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to create backup: {}", e), None, Some("create_backup".to_string())))?;
 
     // Step 4: Rename new table to original name
     let rename_to_original = format!("ALTER TABLE {} RENAME TO {}", temp_table_name, table_name);
     db.execute(&rename_to_original, &[])
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to rename new table: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to rename new table: {}", e), None, Some("rename_table".to_string())))?;
 
     // Step 5: Verify migration success
     let verification_sql = format!("SELECT COUNT(*) FROM {}", table_name);
     let rows = db
         .query(&verification_sql, &[])
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to verify migration: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to verify migration: {}", e), None, Some("verify_migration".to_string())))?;
 
     let row_count: i64 = if let Some(row) = rows.get(0) {
         row.get(0)
@@ -890,7 +891,7 @@ async fn check_backups_retention(
         if should_delete {
             let drop_sql = format!("DROP TABLE IF EXISTS \"{}\" CASCADE", old_table.name);
             db.execute(&drop_sql, &[]).await.map_err(|e| {
-                Error::DatabaseError(format!("Failed to drop old migration table: {}", e))
+                Error::migration(format!("Failed to drop old migration table: {}", e), None, Some("drop_table".to_string()))
             })?;
 
             tracing::info!(
@@ -927,7 +928,7 @@ async fn get_all_migration_tables(
     let rows = db
         .query(query, &param_refs)
         .await
-        .map_err(|e| Error::DatabaseError(format!("Failed to query migration tables: {}", e)))?;
+        .map_err(|e| Error::migration(format!("Failed to query migration tables: {}", e), None, Some("query_tables".to_string())))?;
 
     let mut migration_tables = Vec::new();
 
