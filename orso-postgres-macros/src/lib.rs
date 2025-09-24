@@ -627,7 +627,26 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 orso_postgres::Value::Text(n.to_string())
                             }
                         }
-                        serde_json::Value::String(s) => orso_postgres::Value::Text(s),
+                        serde_json::Value::String(s) => {
+                            // Check if this field is a DateTime field by FieldType
+                            if let Some(pos) = field_names.iter().position(|&name| name == k) {
+                                if let Some(field_type) = field_types.get(pos) {
+                                    if matches!(field_type, orso_postgres::FieldType::Timestamp) {
+                                        // Parse the timestamp string and convert to DateTime
+                                        match orso_postgres::Utils::parse_timestamp(&s) {
+                                            Ok(dt) => orso_postgres::Value::DateTime(dt),
+                                            Err(_) => orso_postgres::Value::Text(s), // Fallback to text if parsing fails
+                                        }
+                                    } else {
+                                        orso_postgres::Value::Text(s)
+                                    }
+                                } else {
+                                    orso_postgres::Value::Text(s)
+                                }
+                            } else {
+                                orso_postgres::Value::Text(s)
+                            }
+                        },
                         serde_json::Value::Array(arr) => {
                             // Use field type metadata to determine correct array conversion
                             if let Some(pos) = field_names.iter().position(|&name| name == k) {
@@ -809,6 +828,9 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             })
                                             .collect()
                                         )
+                                    }
+                                    orso_postgres::Value::DateTime(dt) => {
+                                        serde_json::Value::String(orso_postgres::Utils::create_timestamp(*dt))
                                     }
                                 };
                                 json_map.insert(k.clone(), json_value);
@@ -1283,6 +1305,9 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 .collect()
                             )
                         }
+                        orso_postgres::Value::DateTime(dt) => {
+                            serde_json::Value::String(orso_postgres::Utils::create_timestamp(*dt))
+                        }
                     };
                     json_map.insert(k.clone(), json_value);
                 }
@@ -1315,6 +1340,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     orso_postgres::Value::Text(s) => Box::new(s.clone()),
                     orso_postgres::Value::Blob(b) => Box::new(b.clone()),
                     orso_postgres::Value::Boolean(b) => Box::new(*b),
+                    orso_postgres::Value::DateTime(dt) => Box::new(std::time::SystemTime::from(*dt)),
                     orso_postgres::Value::IntegerArray(arr) => Box::new(arr.clone()),
                     orso_postgres::Value::BigIntArray(arr) => Box::new(arr.clone()),
                     orso_postgres::Value::NumericArray(arr) => Box::new(arr.clone()),
@@ -1562,6 +1588,8 @@ fn map_field_type(
                 "u32" | "u16" | "u8" => quote! { orso_postgres::FieldType::Integer },
                 "f64" | "f32" => quote! { orso_postgres::FieldType::Numeric },
                 "bool" => quote! { orso_postgres::FieldType::Boolean },
+                "DateTime" => quote! { orso_postgres::FieldType::Timestamp },
+                "Timestamp" => quote! { orso_postgres::FieldType::Timestamp },
                 "Option" => {
                     // Handle Option<T> types - get the inner type
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -1575,6 +1603,15 @@ fn map_field_type(
             };
         }
     }
+
+    // Handle full path types like chrono::DateTime<chrono::Utc>
+    if let syn::Type::Path(type_path) = rust_type {
+        let path_str = quote::quote!(#type_path).to_string();
+        if path_str.contains("DateTime") && path_str.contains("Utc") {
+            return quote! { orso_postgres::FieldType::Timestamp };
+        }
+    }
+
     quote! { orso_postgres::FieldType::Text }
 }
 

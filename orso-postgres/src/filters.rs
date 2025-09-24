@@ -1,4 +1,4 @@
-use crate::{Operator, Result, Utils, Value};
+use crate::{Operator, Result, Value};
 use serde::{Deserialize, Serialize};
 
 // Filter operator for building complex queries
@@ -375,7 +375,9 @@ impl FilterOperations {
         Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>>,
     )> {
         match filter {
-            FilterOperator::Single(filter) => Self::build_filter_with_counter(filter, param_counter),
+            FilterOperator::Single(filter) => {
+                Self::build_filter_with_counter(filter, param_counter)
+            }
             FilterOperator::And(filters) => {
                 let mut sql = String::new();
                 let mut params = Vec::new();
@@ -384,7 +386,8 @@ impl FilterOperations {
                     if i > 0 {
                         sql.push_str(" AND ");
                     }
-                    let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
+                    let (filter_sql, filter_params) =
+                        Self::build_filter_operator_with_counter(filter, param_counter)?;
                     sql.push_str(&filter_sql);
                     params.extend(filter_params);
                 }
@@ -399,7 +402,8 @@ impl FilterOperations {
                     if i > 0 {
                         sql.push_str(" OR ");
                     }
-                    let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
+                    let (filter_sql, filter_params) =
+                        Self::build_filter_operator_with_counter(filter, param_counter)?;
                     sql.push_str(&filter_sql);
                     params.extend(filter_params);
                 }
@@ -407,7 +411,8 @@ impl FilterOperations {
                 Ok((sql, params))
             }
             FilterOperator::Not(filter) => {
-                let (filter_sql, filter_params) = Self::build_filter_operator_with_counter(filter, param_counter)?;
+                let (filter_sql, filter_params) =
+                    Self::build_filter_operator_with_counter(filter, param_counter)?;
                 Ok((format!("NOT ({filter_sql})"), filter_params))
             }
             FilterOperator::Custom(condition) => Ok((condition.clone(), vec![])),

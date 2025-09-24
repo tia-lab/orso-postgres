@@ -34,5 +34,6 @@ pub use query::{QueryBuilder, QueryResult};
 pub use serde::{Deserialize, Serialize};
 pub use traits::{FieldType, Orso};
 pub use types::*;
+pub use types::Timestamp;
 pub use utils::Utils;
 pub use uuid::Uuid;

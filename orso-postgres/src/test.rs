@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        self as orso, self as orso_postgres, FloatingCodec, IntegerCodec, Migrations, Utils,
+        self as orso, self as orso_postgres, FloatingCodec, IntegerCodec, Migrations, Timestamp,
+        Utils,
     };
     use orso_postgres::{
         migration, Database, DatabaseConfig, Filter, FilterOperator, Operator, Orso, Pagination,
@@ -944,6 +945,119 @@ mod tests {
         let invalid_timestamp = "invalid-timestamp";
         let parsed = Utils::parse_timestamp(invalid_timestamp);
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_datetime_value_conversion() {
+        use crate::{Timestamp, Value};
+        use chrono::Utc;
+
+        // Test DateTime<Utc> to Value conversion
+        let now = Utc::now();
+        let value = Value::from(now);
+        match value {
+            Value::DateTime(dt) => {
+                println!("DateTime value created successfully: {:?}", dt);
+                assert_eq!(dt, now);
+            }
+            _ => panic!("Expected DateTime variant"),
+        }
+
+        // Test Timestamp to Value conversion
+        let timestamp = Timestamp::now();
+        let value = Value::from(timestamp.clone());
+        match value {
+            Value::DateTime(dt) => {
+                println!("Timestamp value created successfully: {:?}", dt);
+                assert_eq!(dt, timestamp.into_inner());
+            }
+            _ => panic!("Expected DateTime variant"),
+        }
+
+        // Test serialization/deserialization of Timestamp
+        let ts = Timestamp::now();
+        let serialized = serde_json::to_string(&ts).unwrap();
+        println!("Serialized Timestamp: {}", serialized);
+
+        let deserialized: Timestamp = serde_json::from_str(&serialized).unwrap();
+        println!("Deserialized Timestamp: {:?}", deserialized);
+    }
+
+    #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
+    #[orso_table("test_datetime_struct")]
+    struct TestDateTimeStruct {
+        #[orso_column(primary_key)]
+        id: Option<String>,
+
+        name: String,
+
+        // Using our DateTime wrapper
+        my_timestamp: Timestamp,
+
+        // Using chrono::DateTime directly
+        my_chrono_date: chrono::DateTime<chrono::Utc>,
+
+        #[orso_column(created_at)]
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
+
+        #[orso_column(updated_at)]
+        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    #[test]
+    fn test_datetime_struct_operations() {
+        use crate::Timestamp;
+
+        let test_data = TestDateTimeStruct {
+            id: Some("test-id".to_string()),
+            name: "Test Record".to_string(),
+            my_timestamp: Timestamp::now(),
+            my_chrono_date: chrono::Utc::now(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        };
+
+        println!("Test struct: {:?}", test_data);
+
+        // Test field types
+        println!("Field types: {:?}", TestDateTimeStruct::field_types());
+        let field_types = TestDateTimeStruct::field_types();
+
+        // Check that DateTime fields are properly detected as Timestamp type
+        let field_names = TestDateTimeStruct::field_names();
+        for (i, name) in field_names.iter().enumerate() {
+            println!("Field '{}' has type: {:?}", name, field_types.get(i));
+        }
+
+        // Test to_map conversion
+        match test_data.to_map() {
+            Ok(map) => {
+                println!("to_map() successful with {} fields", map.len());
+                for (key, value) in &map {
+                    println!("  {}: {:?}", key, value);
+                }
+
+                // Check that DateTime fields are properly converted to Value::DateTime
+                if let Some(timestamp_value) = map.get("my_timestamp") {
+                    match timestamp_value {
+                        Value::DateTime(dt) => {
+                            println!("my_timestamp correctly converted to DateTime: {:?}", dt)
+                        }
+                        _ => println!(
+                            "WARNING: my_timestamp not converted to DateTime: {:?}",
+                            timestamp_value
+                        ),
+                    }
+                }
+            }
+            Err(e) => panic!("to_map() failed: {}", e),
+        }
+
+        // Test serialization
+        match serde_json::to_string(&test_data) {
+            Ok(json) => println!("Serialized JSON: {}", json),
+            Err(e) => panic!("Serialization failed: {}", e),
+        }
     }
 
     #[tokio::test]

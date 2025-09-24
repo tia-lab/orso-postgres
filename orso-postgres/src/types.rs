@@ -1,4 +1,5 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value {
@@ -8,6 +9,7 @@ pub enum Value {
     Text(String),
     Blob(Vec<u8>),
     Boolean(bool),
+    DateTime(DateTime<Utc>),
     // Array types for PostgreSQL native arrays
     IntegerArray(Vec<i32>),    // INTEGER[] - for i32, i16, i8, u32, u16, u8
     BigIntArray(Vec<i64>),     // BIGINT[] - for i64, u64
@@ -90,6 +92,21 @@ impl From<Option<Vec<u8>>> for Value {
     fn from(v: Option<Vec<u8>>) -> Self {
         match v {
             Some(b) => Value::Blob(b),
+            None => Value::Null,
+        }
+    }
+}
+
+impl From<DateTime<Utc>> for Value {
+    fn from(v: DateTime<Utc>) -> Self {
+        Value::DateTime(v)
+    }
+}
+
+impl From<Option<DateTime<Utc>>> for Value {
+    fn from(v: Option<DateTime<Utc>>) -> Self {
+        match v {
+            Some(dt) => Value::DateTime(dt),
             None => Value::Null,
         }
     }
@@ -227,14 +244,10 @@ impl Value {
                 }
             }
             Value::Real(f) => Box::new(*f),
-            Value::Text(s) => {
-                // Check if this is a timestamp string that should be converted
-                if let Ok(dt) = crate::Utils::parse_timestamp(s) {
-                    // Convert to SystemTime for PostgreSQL
-                    Box::new(std::time::SystemTime::from(dt))
-                } else {
-                    Box::new(s.clone())
-                }
+            Value::Text(s) => Box::new(s.clone()),
+            Value::DateTime(dt) => {
+                // Convert DateTime directly to SystemTime for PostgreSQL
+                Box::new(std::time::SystemTime::from(*dt))
             },
             Value::Blob(b) => Box::new(b.clone()),
             Value::Boolean(b) => Box::new(*b),
@@ -275,12 +288,12 @@ impl Value {
                 Ok(val.map(Value::Boolean).unwrap_or(Value::Null))
             }
             "timestamp" | "timestamptz" => {
-                // Handle PostgreSQL timestamps using SystemTime, then convert to UTC RFC3339
+                // Handle PostgreSQL timestamps using SystemTime, convert to DateTime
                 let val: Option<std::time::SystemTime> = row.try_get(idx)?;
                 Ok(val
                     .map(|st| {
                         let datetime = chrono::DateTime::<chrono::Utc>::from(st);
-                        Value::Text(crate::Utils::create_timestamp(datetime))
+                        Value::DateTime(datetime)
                     })
                     .unwrap_or(Value::Null))
             }
@@ -304,6 +317,87 @@ impl Value {
                 let val: Option<String> = row.try_get(idx)?;
                 Ok(val.map(Value::Text).unwrap_or(Value::Null))
             }
+        }
+    }
+}
+
+/// DateTime wrapper that ensures consistent PostgreSQL timestamp handling
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Timestamp(pub DateTime<Utc>);
+
+impl Timestamp {
+    pub fn new(dt: DateTime<Utc>) -> Self {
+        Self(dt)
+    }
+
+    pub fn now() -> Self {
+        Self(Utc::now())
+    }
+
+    pub fn inner(&self) -> &DateTime<Utc> {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> DateTime<Utc> {
+        self.0
+    }
+}
+
+impl From<DateTime<Utc>> for Timestamp {
+    fn from(dt: DateTime<Utc>) -> Self {
+        Self(dt)
+    }
+}
+
+impl From<Timestamp> for DateTime<Utc> {
+    fn from(ts: Timestamp) -> Self {
+        ts.0
+    }
+}
+
+impl std::ops::Deref for Timestamp {
+    type Target = DateTime<Utc>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Serialize for Timestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Always use PostgreSQL format for serialization
+        let formatted = crate::Utils::create_timestamp(self.0);
+        serializer.serialize_str(&formatted)
+    }
+}
+
+impl<'de> Deserialize<'de> for Timestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let s = String::deserialize(deserializer)?;
+        crate::Utils::parse_timestamp(&s)
+            .map(Timestamp)
+            .map_err(|e| Error::custom(format!("Invalid timestamp format: {}", e)))
+    }
+}
+
+impl From<Timestamp> for Value {
+    fn from(ts: Timestamp) -> Self {
+        Value::DateTime(ts.0)
+    }
+}
+
+impl From<Option<Timestamp>> for Value {
+    fn from(ts: Option<Timestamp>) -> Self {
+        match ts {
+            Some(t) => Value::DateTime(t.0),
+            None => Value::Null,
         }
     }
 }

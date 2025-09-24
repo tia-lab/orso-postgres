@@ -42,3 +42,7 @@ path = "src/bin/debug_schema.rs"
 [[bin]]
 name = "test_migration"
 path = "src/bin/test_migration.rs"
+
+[[bin]]
+name = "test_datetime"
+path = "src/bin/test_datetime.rs"
