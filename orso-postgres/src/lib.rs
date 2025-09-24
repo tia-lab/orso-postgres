@@ -17,6 +17,11 @@ mod test;
 pub use tokio_postgres;
 pub use postgres_types;
 
+// Create orso module alias for macro compatibility
+pub mod orso {
+    pub use crate::*;
+}
+
 pub use chrono;
 pub use cydec::{FloatingCodec, IntegerCodec};
 pub use database::*;

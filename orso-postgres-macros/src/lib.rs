@@ -1298,7 +1298,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
 
             // Utility methods
-            fn row_to_map(row: &orso::tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
+            fn row_to_map(row: &orso_postgres::tokio_postgres::Row) -> orso::Result<std::collections::HashMap<String, orso::Value>> {
                 let mut map = std::collections::HashMap::new();
                 for (i, column) in row.columns().iter().enumerate() {
                     let column_name = column.name();
@@ -1308,7 +1308,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 Ok(map)
             }
 
-            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn orso::tokio_postgres::types::ToSql + Send + Sync> {
+            fn value_to_postgres_param(value: &orso::Value) -> Box<dyn orso_postgres::tokio_postgres::types::ToSql + Send + Sync> {
                 match value {
                     orso::Value::Null => Box::new(Option::<String>::None),
                     orso::Value::Integer(i) => Box::new(*i),

@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::{self as orso, FloatingCodec, IntegerCodec, Migrations, Utils};
+    use crate::{
+        self as orso, self as orso_postgres, FloatingCodec, IntegerCodec, Migrations, Utils,
+    };
     use orso::{
         migration, Database, DatabaseConfig, Filter, FilterOperator, Operator, Orso, Pagination,
         Sort, SortOrder, Value,
@@ -61,7 +63,9 @@ mod tests {
         }
 
         // Force PostgreSQL to clear its internal caches
-        let _ = db.execute("SELECT pg_catalog.pg_stat_clear_snapshot()", &[]).await;
+        let _ = db
+            .execute("SELECT pg_catalog.pg_stat_clear_snapshot()", &[])
+            .await;
         let _ = db.execute("DISCARD ALL", &[]).await;
 
         Ok(())
@@ -2095,8 +2099,13 @@ Test completed successfully!"
         let compressed_flags = TestArraysVsCompressed::field_compressed();
         println!("=== FIELD DEBUG ===");
         for (i, name) in field_names.iter().enumerate() {
-            println!("  {}: {} -> {:?} -> compressed: {}",
-                    i, name, field_types.get(i), compressed_flags.get(i).unwrap_or(&false));
+            println!(
+                "  {}: {} -> {:?} -> compressed: {}",
+                i,
+                name,
+                field_types.get(i),
+                compressed_flags.get(i).unwrap_or(&false)
+            );
         }
         println!("==================");
 
@@ -2144,10 +2153,22 @@ Test completed successfully!"
         for (k, v) in &map {
             match v {
                 Value::BigIntArray(arr) => println!("  {}: BigIntArray({} elements)", k, arr.len()),
-                Value::IntegerArray(arr) => println!("  {}: IntegerArray({} elements)", k, arr.len()),
-                Value::NumericArray(arr) => println!("  {}: NumericArray({} elements)", k, arr.len()),
+                Value::IntegerArray(arr) => {
+                    println!("  {}: IntegerArray({} elements)", k, arr.len())
+                }
+                Value::NumericArray(arr) => {
+                    println!("  {}: NumericArray({} elements)", k, arr.len())
+                }
                 Value::Blob(b) => println!("  {}: Blob({} bytes)", k, b.len()),
-                Value::Text(s) => println!("  {}: Text({})", k, if s.len() > 50 { format!("{}...", &s[..50]) } else { s.clone() }),
+                Value::Text(s) => println!(
+                    "  {}: Text({})",
+                    k,
+                    if s.len() > 50 {
+                        format!("{}...", &s[..50])
+                    } else {
+                        s.clone()
+                    }
+                ),
                 _ => println!("  {}: {:?}", k, v),
             }
         }
@@ -2206,7 +2227,13 @@ Test completed successfully!"
         let test_data = TestArrayEdgeCases {
             id: None,
             extreme_i64: vec![-9223372036854775808, 9223372036854775807, 0, -1, 1],
-            extreme_f64: vec![-1.7976931348623157e+308, 1.7976931348623157e+308, 0.0, -1.0, 1.0],
+            extreme_f64: vec![
+                -1.7976931348623157e+308,
+                1.7976931348623157e+308,
+                0.0,
+                -1.0,
+                1.0,
+            ],
             mixed_signs: vec![-1000, -1, 0, 1, 1000],
             name: "Extreme Values".to_string(),
         };
@@ -2394,9 +2421,21 @@ Test completed successfully!"
         for (k, v) in &map {
             match v {
                 Value::BigIntArray(arr) => println!("  {}: BigIntArray({} elements)", k, arr.len()),
-                Value::IntegerArray(arr) => println!("  {}: IntegerArray({} elements)", k, arr.len()),
-                Value::NumericArray(arr) => println!("  {}: NumericArray({} elements)", k, arr.len()),
-                Value::Text(s) => println!("  {}: Text({})", k, if s.len() > 50 { format!("{}...", &s[..50]) } else { s.clone() }),
+                Value::IntegerArray(arr) => {
+                    println!("  {}: IntegerArray({} elements)", k, arr.len())
+                }
+                Value::NumericArray(arr) => {
+                    println!("  {}: NumericArray({} elements)", k, arr.len())
+                }
+                Value::Text(s) => println!(
+                    "  {}: Text({})",
+                    k,
+                    if s.len() > 50 {
+                        format!("{}...", &s[..50])
+                    } else {
+                        s.clone()
+                    }
+                ),
                 _ => println!("  {}: {:?}", k, v),
             }
         }
