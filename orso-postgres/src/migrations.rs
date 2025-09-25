@@ -349,6 +349,8 @@ fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
         FieldType::IntegerArray => "INTEGER[]".to_string(), // PostgreSQL INTEGER array
         FieldType::BigIntArray => "BIGINT[]".to_string(),   // PostgreSQL BIGINT array
         FieldType::NumericArray => "DOUBLE PRECISION[]".to_string(), // PostgreSQL DOUBLE PRECISION array
+        // Vector types for pgvector extension
+        FieldType::Vector(dimensions) => format!("vector({})", dimensions), // PostgreSQL pgvector type
     }
 }
 

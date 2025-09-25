@@ -102,6 +102,7 @@ impl Utils {
             crate::Value::IntegerArray(arr) => Box::new(arr.clone()),
             crate::Value::BigIntArray(arr) => Box::new(arr.clone()),
             crate::Value::NumericArray(arr) => Box::new(arr.clone()),
+            crate::Value::Vector(v) => Box::new(v.clone()),
         }
     }
 
