@@ -1,4 +1,4 @@
-use orso_postgres::{self as orso, migration, Database, DatabaseConfig, Migrations, Orso};
+use orso_postgres::{migration, Database, DatabaseConfig, Migrations, Orso};
 use serde::{Deserialize, Serialize};
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]

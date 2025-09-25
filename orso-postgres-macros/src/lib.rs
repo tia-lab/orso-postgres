@@ -830,7 +830,10 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                         )
                                     }
                                     orso_postgres::Value::DateTime(dt) => {
-                                        serde_json::Value::String(orso_postgres::Utils::create_timestamp(*dt))
+                                        match serde_json::to_value(*dt) {
+                                            Ok(val) => val,
+                                            Err(_) => serde_json::Value::Null
+                                        }
                                     }
                                 };
                                 json_map.insert(k.clone(), json_value);
@@ -1306,7 +1309,10 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                             )
                         }
                         orso_postgres::Value::DateTime(dt) => {
-                            serde_json::Value::String(orso_postgres::Utils::create_timestamp(*dt))
+                            match serde_json::to_value(*dt) {
+                                Ok(val) => val,
+                                Err(_) => serde_json::Value::Null
+                            }
                         }
                     };
                     json_map.insert(k.clone(), json_value);

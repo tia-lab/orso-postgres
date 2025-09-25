@@ -26,6 +26,34 @@ impl Utils {
             // Create a ParseError for empty input - use a dummy parse to get the error type
             return "".parse::<DateTime<Utc>>().map(OrsoDateTime::new).map_err(|e| e);
         }
+
+        // Try RFC3339 format first (ISO 8601)
+        if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp) {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL's default timestamp format: "YYYY-MM-DD HH:MM:SS.ssssss+TZ"
+        // PostgreSQL format: "2025-09-25 08:53:38.892569+02"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.f%z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format with full timezone offset: "2025-09-25 08:53:38.892569+0200"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.f%#z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format without microseconds: "2025-09-25 08:53:38+02"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format without microseconds and full offset: "2025-09-25 08:53:38+0200"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%#z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // If all formats fail, return error for the original RFC3339 attempt
         DateTime::parse_from_rfc3339(timestamp)
             .map(|dt| OrsoDateTime::new(dt.with_timezone(&Utc)))
     }

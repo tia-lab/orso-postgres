@@ -1,4 +1,4 @@
-use orso_postgres::{self as orso, Orso};
+use orso_postgres::Orso;
 use serde::{Deserialize, Serialize};
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]

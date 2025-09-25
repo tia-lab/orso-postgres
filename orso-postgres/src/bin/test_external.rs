@@ -1,5 +1,5 @@
 // Test external-like usage
-use orso_postgres::{orso, Orso, orso_column, OrsoDateTime};
+use orso_postgres::{orso_column, Orso, OrsoDateTime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Orso)]
