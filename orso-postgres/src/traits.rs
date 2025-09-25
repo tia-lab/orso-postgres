@@ -1,5 +1,4 @@
-use crate::{Database, FilterOperator, Result};
-use chrono::{DateTime, Utc};
+use crate::{Database, FilterOperator, OrsoDateTime, Result};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 
@@ -48,9 +47,9 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
 
     fn get_primary_key(&self) -> Option<String>;
     fn set_primary_key(&mut self, id: String);
-    fn get_created_at(&self) -> Option<DateTime<Utc>>;
-    fn get_updated_at(&self) -> Option<DateTime<Utc>>;
-    fn set_updated_at(&mut self, updated_at: DateTime<Utc>);
+    fn get_created_at(&self) -> Option<OrsoDateTime>;
+    fn get_updated_at(&self) -> Option<OrsoDateTime>;
+    fn set_updated_at(&mut self, updated_at: OrsoDateTime);
 
     fn migration_sql() -> String;
 

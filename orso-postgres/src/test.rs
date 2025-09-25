@@ -1,12 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        self as orso, self as orso_postgres, FloatingCodec, IntegerCodec, Migrations, Timestamp,
-        Utils,
-    };
-    use orso_postgres::{
-        migration, Database, DatabaseConfig, Filter, FilterOperator, Operator, Orso, Pagination,
-        Sort, SortOrder, Value,
+        self as orso, self as orso_postgres, migration, orso_column, orso_table, Database,
+        DatabaseConfig, Filter, FilterOperator, FloatingCodec, IntegerCodec, Migrations, Operator,
+        Orso, OrsoDateTime, Pagination, Sort, SortOrder, Utils, Value,
     };
     use serde::{Deserialize, Serialize};
 
@@ -99,10 +96,10 @@ mod tests {
         age: i32,
 
         #[orso_column(created_at)]
-        created_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at: Option<OrsoDateTime>,
 
         #[orso_column(updated_at)]
-        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+        updated_at: Option<OrsoDateTime>,
     }
 
     #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
@@ -124,10 +121,10 @@ mod tests {
         age: i32,
 
         #[orso_column(created_at)]
-        created_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at: Option<OrsoDateTime>,
 
         #[orso_column(updated_at)]
-        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+        updated_at: Option<OrsoDateTime>,
     }
 
     #[derive(Orso, serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
@@ -654,7 +651,7 @@ mod tests {
     #[tokio::test]
     async fn test_migration_no_change_detection() -> Result<(), Box<dyn std::error::Error>> {
         use crate as orso;
-        use orso_postgres::{migration, Database, Migrations, Orso};
+        use crate::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
         #[orso_table("migration_test_006")]
@@ -949,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_datetime_value_conversion() {
-        use crate::{Timestamp, Value};
+        use crate::{OrsoDateTime, Value};
         use chrono::Utc;
 
         // Test DateTime<Utc> to Value conversion
@@ -958,28 +955,28 @@ mod tests {
         match value {
             Value::DateTime(dt) => {
                 println!("DateTime value created successfully: {:?}", dt);
-                assert_eq!(dt, now);
+                assert_eq!(dt, OrsoDateTime::from(now));
             }
             _ => panic!("Expected DateTime variant"),
         }
 
         // Test Timestamp to Value conversion
-        let timestamp = Timestamp::now();
+        let timestamp = OrsoDateTime::now();
         let value = Value::from(timestamp.clone());
         match value {
             Value::DateTime(dt) => {
                 println!("Timestamp value created successfully: {:?}", dt);
-                assert_eq!(dt, timestamp.into_inner());
+                assert_eq!(dt, timestamp);
             }
             _ => panic!("Expected DateTime variant"),
         }
 
         // Test serialization/deserialization of Timestamp
-        let ts = Timestamp::now();
+        let ts = OrsoDateTime::now();
         let serialized = serde_json::to_string(&ts).unwrap();
         println!("Serialized Timestamp: {}", serialized);
 
-        let deserialized: Timestamp = serde_json::from_str(&serialized).unwrap();
+        let deserialized: OrsoDateTime = serde_json::from_str(&serialized).unwrap();
         println!("Deserialized Timestamp: {:?}", deserialized);
     }
 
@@ -992,29 +989,29 @@ mod tests {
         name: String,
 
         // Using our DateTime wrapper
-        my_timestamp: Timestamp,
+        my_timestamp: OrsoDateTime,
 
         // Using chrono::DateTime directly
         my_chrono_date: chrono::DateTime<chrono::Utc>,
 
         #[orso_column(created_at)]
-        created_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at: Option<OrsoDateTime>,
 
         #[orso_column(updated_at)]
-        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+        updated_at: Option<OrsoDateTime>,
     }
 
     #[test]
     fn test_datetime_struct_operations() {
-        use crate::Timestamp;
+        use crate::OrsoDateTime;
 
         let test_data = TestDateTimeStruct {
             id: Some("test-id".to_string()),
             name: "Test Record".to_string(),
-            my_timestamp: Timestamp::now(),
+            my_timestamp: OrsoDateTime::now(),
             my_chrono_date: chrono::Utc::now(),
-            created_at: Some(chrono::Utc::now()),
-            updated_at: Some(chrono::Utc::now()),
+            created_at: Some(OrsoDateTime::now()),
+            updated_at: Some(OrsoDateTime::now()),
         };
 
         println!("Test struct: {:?}", test_data);
@@ -1208,7 +1205,7 @@ Test completed successfully!"
 
     #[tokio::test]
     async fn batch_compression_test() -> Result<(), Box<dyn std::error::Error>> {
-        use orso_postgres::{migration, Database, Migrations, Orso};
+        use crate::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
@@ -1550,7 +1547,7 @@ Test completed successfully!"
     }
     #[tokio::test]
     async fn batch_operations_test() -> Result<(), Box<dyn std::error::Error>> {
-        use orso_postgres::{migration, Database, Migrations, Orso};
+        use crate::{migration, Database, Migrations, Orso};
         use serde::{Deserialize, Serialize};
 
         #[derive(Orso, Serialize, Deserialize, Clone, Debug, Default)]
@@ -2598,10 +2595,10 @@ Test completed successfully!"
         age: i32,
 
         #[orso_column(created_at)]
-        created_at: Option<chrono::DateTime<chrono::Utc>>,
+        created_at: Option<OrsoDateTime>,
 
         #[orso_column(updated_at)]
-        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+        updated_at: Option<OrsoDateTime>,
     }
 
     #[tokio::test]

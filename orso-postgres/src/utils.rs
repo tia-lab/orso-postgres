@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use crate::OrsoDateTime;
 
 /// Utility functions for ORSO
 #[derive(Debug, Clone)]
@@ -12,36 +13,71 @@ impl Utils {
         Some(Uuid::new_v4().to_string())
     }
 
-    pub fn current_timestamp() -> Option<DateTime<Utc>> {
-        Some(Utc::now())
+    pub fn current_timestamp() -> Option<OrsoDateTime> {
+        Some(OrsoDateTime::now())
     }
 
-    pub fn create_timestamp(timestamp: DateTime<Utc>) -> String {
-        timestamp.to_rfc3339()
+    pub fn create_timestamp(timestamp: OrsoDateTime) -> String {
+        timestamp.inner().to_rfc3339()
     }
 
-    pub fn parse_timestamp(timestamp: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
-        DateTime::parse_from_rfc3339(timestamp).map(|dt| dt.with_timezone(&Utc))
+    pub fn parse_timestamp(timestamp: &str) -> Result<OrsoDateTime, chrono::ParseError> {
+        if timestamp.is_empty() {
+            // Create a ParseError for empty input - use a dummy parse to get the error type
+            return "".parse::<DateTime<Utc>>().map(OrsoDateTime::new).map_err(|e| e);
+        }
+
+        // Try RFC3339 format first (ISO 8601)
+        if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp) {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL's default timestamp format: "YYYY-MM-DD HH:MM:SS.ssssss+TZ"
+        // PostgreSQL format: "2025-09-25 08:53:38.892569+02"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.f%z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format with full timezone offset: "2025-09-25 08:53:38.892569+0200"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%.f%#z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format without microseconds: "2025-09-25 08:53:38+02"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // Try PostgreSQL format without microseconds and full offset: "2025-09-25 08:53:38+0200"
+        if let Ok(dt) = DateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S%#z") {
+            return Ok(OrsoDateTime::new(dt.with_timezone(&Utc)));
+        }
+
+        // If all formats fail, return error for the original RFC3339 attempt
+        DateTime::parse_from_rfc3339(timestamp)
+            .map(|dt| OrsoDateTime::new(dt.with_timezone(&Utc)))
     }
 
-    /// Convert DateTime to Unix timestamp (seconds since epoch)
-    pub fn datetime_to_unix_timestamp(dt: &DateTime<Utc>) -> i64 {
-        dt.timestamp()
+    /// Convert OrsoDateTime to Unix timestamp (seconds since epoch)
+    pub fn datetime_to_unix_timestamp(dt: &OrsoDateTime) -> i64 {
+        dt.inner().timestamp()
     }
 
-    /// Convert Unix timestamp (seconds since epoch) to DateTime
-    pub fn unix_timestamp_to_datetime(timestamp: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp(timestamp, 0).unwrap_or_else(|| Utc::now())
+    /// Convert Unix timestamp (seconds since epoch) to OrsoDateTime
+    pub fn unix_timestamp_to_datetime(timestamp: i64) -> OrsoDateTime {
+        let dt = DateTime::from_timestamp(timestamp, 0).unwrap_or_else(|| Utc::now());
+        OrsoDateTime::new(dt)
     }
 
-    /// Convert DateTime to Unix timestamp with milliseconds
-    pub fn datetime_to_unix_timestamp_millis(dt: &DateTime<Utc>) -> i64 {
-        dt.timestamp_millis()
+    /// Convert OrsoDateTime to Unix timestamp with milliseconds
+    pub fn datetime_to_unix_timestamp_millis(dt: &OrsoDateTime) -> i64 {
+        dt.inner().timestamp_millis()
     }
 
-    /// Convert Unix timestamp with milliseconds to DateTime
-    pub fn unix_timestamp_millis_to_datetime(timestamp: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp_millis(timestamp).unwrap_or_else(|| Utc::now())
+    /// Convert Unix timestamp with milliseconds to OrsoDateTime
+    pub fn unix_timestamp_millis_to_datetime(timestamp: i64) -> OrsoDateTime {
+        let dt = DateTime::from_timestamp_millis(timestamp).unwrap_or_else(|| Utc::now());
+        OrsoDateTime::new(dt)
     }
 
     /// Convert our Value type to PostgreSQL parameter
@@ -62,7 +98,7 @@ impl Utils {
             crate::Value::Text(s) => Box::new(s.clone()),
             crate::Value::Blob(b) => Box::new(b.clone()),
             crate::Value::Boolean(b) => Box::new(*b),
-            crate::Value::DateTime(dt) => Box::new(std::time::SystemTime::from(*dt)),
+            crate::Value::DateTime(dt) => Box::new(std::time::SystemTime::from(*dt.inner())),
             crate::Value::IntegerArray(arr) => Box::new(arr.clone()),
             crate::Value::BigIntArray(arr) => Box::new(arr.clone()),
             crate::Value::NumericArray(arr) => Box::new(arr.clone()),

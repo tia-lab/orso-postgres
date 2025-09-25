@@ -276,7 +276,7 @@ impl QueryBuilder {
             let count: i64 = row.get(0);
             Ok(count as u64)
         } else {
-            Err(crate::Error::Query("No count result".to_string()))
+            Err(crate::Error::query("No count result"))
         }
     }
 

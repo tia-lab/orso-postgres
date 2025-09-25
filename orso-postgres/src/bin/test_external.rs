@@ -1,7 +1,6 @@
 // Test external-like usage
-use orso_postgres::{orso, Orso, orso_column};
+use orso_postgres::{orso_column, Orso, OrsoDateTime};
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Orso)]
 pub struct TestExternalUsage {
@@ -9,7 +8,7 @@ pub struct TestExternalUsage {
     pub id: Option<String>,
 
     #[orso_column(updated_at)]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<OrsoDateTime>,
 
     pub name: String,
     pub age: i32,

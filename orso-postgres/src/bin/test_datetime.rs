@@ -1,5 +1,5 @@
 use chrono::Timelike;
-use orso_postgres::{Orso, Timestamp};
+use orso_postgres::{Orso, OrsoDateTime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
@@ -11,16 +11,16 @@ struct TestDateTime {
     name: String,
 
     // Using our DateTime wrapper
-    my_timestamp: Timestamp,
+    my_timestamp: OrsoDateTime,
 
     // Using chrono::DateTime directly
     my_chrono_date: chrono::DateTime<chrono::Utc>,
 
     #[orso_column(created_at)]
-    created_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: Option<OrsoDateTime>,
 
     #[orso_column(updated_at)]
-    updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    updated_at: Option<OrsoDateTime>,
 }
 
 fn validate_precise_date(date_str: &str, expected_date: &str) -> bool {
@@ -52,7 +52,7 @@ fn validate_precise_date(date_str: &str, expected_date: &str) -> bool {
     }
 }
 
-fn validate_timestamp_wrapper(timestamp: &Timestamp, expected_date: &str) -> bool {
+fn validate_timestamp_wrapper(timestamp: &OrsoDateTime, expected_date: &str) -> bool {
     // Get the inner DateTime
     let inner_dt = timestamp.inner();
 
@@ -62,7 +62,7 @@ fn validate_timestamp_wrapper(timestamp: &Timestamp, expected_date: &str) -> boo
             let expected_utc = expected.with_timezone(&chrono::Utc);
             let diff = (inner_dt.timestamp() - expected_utc.timestamp()).abs();
 
-            println!("Timestamp validation: {} vs {}", inner_dt, expected_utc);
+            println!("OrsoDateTime validation: {} vs {}", inner_dt, expected_utc);
             println!("Difference: {} seconds", diff);
 
             diff <= 1 // 1 second tolerance
@@ -81,13 +81,13 @@ fn create_precise_timestamp(
     hour: u32,
     min: u32,
     sec: u32,
-) -> Option<Timestamp> {
+) -> Option<OrsoDateTime> {
     // Create precise datetime
     let naive_dt = chrono::NaiveDate::from_ymd_opt(year, month, day)
         .and_then(|d| d.and_hms_opt(hour, min, sec))?;
 
     let utc_dt = chrono::DateTime::from_naive_utc_and_offset(naive_dt, chrono::Utc);
-    Some(Timestamp::new(utc_dt))
+    Some(OrsoDateTime::new(utc_dt))
 }
 
 fn main() {
@@ -95,11 +95,11 @@ fn main() {
 
     // Test 1: Basic DateTime wrapper
     let now = chrono::Utc::now();
-    let timestamp = Timestamp::new(now);
+    let timestamp = OrsoDateTime::new(now);
 
     println!("1. Basic DateTime wrapper:");
     println!("   Original DateTime: {:?}", now);
-    println!("   Timestamp wrapper: {:?}", timestamp);
+    println!("   OrsoDateTime wrapper: {:?}", timestamp);
     println!(
         "   Serialized: {}\n",
         serde_json::to_string(&timestamp).unwrap()
@@ -113,7 +113,7 @@ fn main() {
     println!("   Date '{}' is valid: {}\n", test_date, is_valid);
 
     // Test 3: Create and validate precise timestamp
-    println!("3. Precise Timestamp Creation:");
+    println!("3. Precise OrsoDateTime Creation:");
     match create_precise_timestamp(2024, 12, 25, 15, 30, 45) {
         Some(precise_ts) => {
             println!("   Created precise timestamp: {:?}", precise_ts);
@@ -171,11 +171,11 @@ fn main() {
 
     // Test 6: Serialization/deserialization validation
     println!("6. Serialization/Deserialization Test:");
-    let original_ts = Timestamp::now();
+    let original_ts = OrsoDateTime::now();
     match serde_json::to_string(&original_ts) {
         Ok(json) => {
             println!("   Serialized: {}", json);
-            match serde_json::from_str::<Timestamp>(&json) {
+            match serde_json::from_str::<OrsoDateTime>(&json) {
                 Ok(deserialized_ts) => {
                     let diff = (original_ts.inner().timestamp()
                         - deserialized_ts.inner().timestamp())

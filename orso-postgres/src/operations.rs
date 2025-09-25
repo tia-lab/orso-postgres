@@ -101,9 +101,7 @@ impl CrudOperations {
     {
         let unique_columns: Vec<&str> = T::unique_fields();
         if unique_columns.is_empty() {
-            return Err(Error::Validation(
-                "No unique columns defined with orso_column(unique) for upsert".to_string(),
-            ));
+            return Err(Error::validation("No unique columns defined with orso_column(unique) for upsert"));
         }
 
         let map = model.to_map()?;
@@ -120,9 +118,7 @@ impl CrudOperations {
         }
 
         if where_conditions.is_empty() {
-            return Err(Error::Validation(
-                "No valid unique column values found for upsert".to_string(),
-            ));
+            return Err(Error::validation("No valid unique column values found for upsert"));
         }
 
         let where_clause = where_conditions.join(" AND ");
@@ -654,7 +650,7 @@ impl CrudOperations {
             let count: i64 = row.get(0);
             Ok(count as u64)
         } else {
-            Err(Error::Query("No count result".to_string()))
+            Err(Error::query("No count result"))
         }
     }
 
@@ -686,7 +682,7 @@ impl CrudOperations {
             let count: i64 = row.get(0);
             Ok(count as u64)
         } else {
-            Err(Error::Query("No count result".to_string()))
+            Err(Error::query("No count result"))
         }
     }
 
@@ -703,7 +699,7 @@ impl CrudOperations {
         T: crate::Orso,
     {
         let id = model.get_primary_key().ok_or_else(|| {
-            Error::Validation("Cannot update record without primary key".to_string())
+            Error::validation("Cannot update record without primary key")
         })?;
 
         let map = model.to_map()?;
@@ -775,7 +771,7 @@ impl CrudOperations {
 
         for model in models {
             let id = model.get_primary_key().ok_or_else(|| {
-                Error::Validation("Cannot batch update record without primary key".to_string())
+                Error::validation("Cannot batch update record without primary key")
             })?;
 
             let map = model.to_map()?;
@@ -831,7 +827,7 @@ impl CrudOperations {
         T: crate::Orso,
     {
         let id = model.get_primary_key().ok_or_else(|| {
-            Error::Validation("Cannot delete record without primary key".to_string())
+            Error::validation("Cannot delete record without primary key")
         })?;
 
         let sql = format!(
@@ -867,7 +863,7 @@ impl CrudOperations {
         T: crate::Orso,
     {
         let id = model.get_primary_key().ok_or_else(|| {
-            Error::Validation("Cannot delete record without primary key".to_string())
+            Error::validation("Cannot delete record without primary key")
         })?;
 
         // PostgreSQL doesn't have CASCADE on DELETE statements, so we need to handle
@@ -1011,9 +1007,7 @@ impl CrudOperations {
 
         let unique_columns: Vec<&str> = T::unique_fields();
         if unique_columns.is_empty() {
-            return Err(Error::Validation(
-                "No unique columns defined with orso_column(unique) for batch upsert".to_string(),
-            ));
+            return Err(Error::validation("No unique columns defined with orso_column(unique) for batch upsert"));
         }
 
         for model in models {
@@ -1254,7 +1248,7 @@ impl CrudOperations {
             } else if let Ok(value) = row.try_get::<_, i64>(0) {
                 Ok(Some(value as f64))
             } else {
-                Err(Error::Query("Failed to get aggregate value".to_string()))
+                Err(Error::query("Failed to get aggregate value"))
             }
         } else {
             Ok(None)
