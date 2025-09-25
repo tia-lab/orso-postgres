@@ -1,3 +1,5 @@
+use tracing::{debug, trace};
+
 // Migration system with zero-loss schema changes
 use crate::{database::Database, error::Error, traits::FieldType, Orso};
 // use chrono::{DateTime, Utc}; // Reserved for future migration timestamp features
@@ -196,9 +198,13 @@ where
         // Create new table using custom SQL generation with table name override
         let create_sql = generate_migration_sql_with_custom_name::<T>(table_name);
 
-        db.execute(&create_sql, &[])
-            .await
-            .map_err(|e| Error::migration(format!("Failed to create table: {}", e), None, Some("create_table".to_string())))?;
+        db.execute(&create_sql, &[]).await.map_err(|e| {
+            Error::migration(
+                format!("Failed to create table: {}", e),
+                None,
+                Some("create_table".to_string()),
+            )
+        })?;
 
         return Ok(MigrationResult {
             action: MigrationAction::TableCreated,
@@ -323,7 +329,7 @@ where
             is_primary_key,
             foreign_key_reference: None, // Would need to add this to Orso trait
             has_default,
-            is_compressed: *compressed,  // Track compression status
+            is_compressed: *compressed, // Track compression status
         });
     }
 
@@ -333,15 +339,15 @@ where
 fn field_type_to_sqlite_type(field_type: &FieldType) -> String {
     match field_type {
         FieldType::Text => "TEXT".to_string(),
-        FieldType::Integer => "INTEGER".to_string(),  // PostgreSQL INTEGER (int4)
-        FieldType::BigInt => "BIGINT".to_string(),    // PostgreSQL BIGINT (int8)
+        FieldType::Integer => "INTEGER".to_string(), // PostgreSQL INTEGER (int4)
+        FieldType::BigInt => "BIGINT".to_string(),   // PostgreSQL BIGINT (int8)
         FieldType::Numeric => "DOUBLE PRECISION".to_string(), // PostgreSQL DOUBLE PRECISION
-        FieldType::Boolean => "BOOLEAN".to_string(),  // PostgreSQL native BOOLEAN
-        FieldType::JsonB => "JSONB".to_string(),      // PostgreSQL native JSONB
+        FieldType::Boolean => "BOOLEAN".to_string(), // PostgreSQL native BOOLEAN
+        FieldType::JsonB => "JSONB".to_string(),     // PostgreSQL native JSONB
         FieldType::Timestamp => "TIMESTAMP WITHOUT TIME ZONE".to_string(), // PostgreSQL UTC timestamp without timezone
         // Array types for PostgreSQL native arrays
-        FieldType::IntegerArray => "INTEGER[]".to_string(),   // PostgreSQL INTEGER array
-        FieldType::BigIntArray => "BIGINT[]".to_string(),     // PostgreSQL BIGINT array
+        FieldType::IntegerArray => "INTEGER[]".to_string(), // PostgreSQL INTEGER array
+        FieldType::BigIntArray => "BIGINT[]".to_string(),   // PostgreSQL BIGINT array
         FieldType::NumericArray => "DOUBLE PRECISION[]".to_string(), // PostgreSQL DOUBLE PRECISION array
     }
 }
@@ -354,10 +360,13 @@ async fn check_table_exists(db: &Database, table_name: &str) -> Result<bool, Err
     let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
         params.iter().map(|p| p.as_ref()).collect();
 
-    let rows = db
-        .query(query, &param_refs)
-        .await
-        .map_err(|e| Error::migration(format!("Failed to check table existence: {}", e), None, Some("table_exists".to_string())))?;
+    let rows = db.query(query, &param_refs).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to check table existence: {}", e),
+            None,
+            Some("table_exists".to_string()),
+        )
+    })?;
 
     Ok(!rows.is_empty())
 }
@@ -370,7 +379,14 @@ async fn get_current_table_schema(
     let query = "
         SELECT
             column_name,
-            data_type,
+            CASE
+                WHEN data_type = 'ARRAY' THEN
+                    (SELECT format_type(a.atttypid, a.atttypmod)
+                     FROM pg_attribute a
+                     JOIN pg_class c ON c.oid = a.attrelid
+                     WHERE c.relname = $1 AND a.attname = column_name)
+                ELSE data_type
+            END as data_type,
             is_nullable,
             ordinal_position,
             column_default
@@ -384,10 +400,13 @@ async fn get_current_table_schema(
     let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
         params.iter().map(|p| p.as_ref()).collect();
 
-    let rows = db
-        .query(query, &param_refs)
-        .await
-        .map_err(|e| Error::migration(format!("Failed to get table info: {}", e), None, Some("table_info".to_string())))?;
+    let rows = db.query(query, &param_refs).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to get table info: {}", e),
+            None,
+            Some("table_info".to_string()),
+        )
+    })?;
 
     let mut columns = Vec::new();
     let mut column_info_map = std::collections::HashMap::new();
@@ -404,9 +423,9 @@ async fn get_current_table_schema(
             sql_type: data_type.to_uppercase(),
             nullable: is_nullable == "YES",
             position: ordinal_position - 1, // Convert from 1-indexed to 0-indexed
-            is_unique: false,            // Will be updated later from constraints
-            is_primary_key: false,       // Will be updated later from constraints
-            foreign_key_reference: None, // Will be updated later from constraints
+            is_unique: false,               // Will be updated later from constraints
+            is_primary_key: false,          // Will be updated later from constraints
+            foreign_key_reference: None,    // Will be updated later from constraints
             has_default: column_default.is_some(),
             is_compressed: data_type.to_uppercase() == "BYTEA", // PostgreSQL: BYTEA columns are probably compressed
         };
@@ -438,7 +457,13 @@ async fn get_current_table_schema(
     let constraint_rows = db
         .query(constraint_query, &constraint_param_refs)
         .await
-        .map_err(|e| Error::migration(format!("Failed to get constraint info: {}", e), None, Some("constraint_info".to_string())))?;
+        .map_err(|e| {
+            Error::migration(
+                format!("Failed to get constraint info: {}", e),
+                None,
+                Some("constraint_info".to_string()),
+            )
+        })?;
 
     // Process constraint information and update column flags
     for row in constraint_rows {
@@ -476,10 +501,13 @@ async fn get_current_table_schema(
     let fk_param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
         fk_params.iter().map(|p| p.as_ref()).collect();
 
-    let fk_rows = db
-        .query(fk_query, &fk_param_refs)
-        .await
-        .map_err(|e| Error::migration(format!("Failed to get foreign key list: {}", e), None, Some("foreign_key_list".to_string())))?;
+    let fk_rows = db.query(fk_query, &fk_param_refs).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to get foreign key list: {}", e),
+            None,
+            Some("foreign_key_list".to_string()),
+        )
+    })?;
 
     for row in fk_rows {
         let column_name: String = row.get(0);
@@ -613,9 +641,13 @@ async fn perform_zero_loss_migration(
     let temp_table_name = format!("{}_temp_{}", table_name, timestamp);
     let create_sql = generate_create_table_sql(&temp_table_name, &comparison.expected_columns);
 
-    db.execute(&create_sql, &[])
-        .await
-        .map_err(|e| Error::migration(format!("Failed to create temp table: {}", e), None, Some("create_temp_table".to_string())))?;
+    db.execute(&create_sql, &[]).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to create temp table: {}", e),
+            None,
+            Some("create_temp_table".to_string()),
+        )
+    })?;
 
     // Step 2: Copy data from old table to new table (preserving row order)
     let copy_sql = generate_data_migration_sql(
@@ -625,29 +657,43 @@ async fn perform_zero_loss_migration(
         &comparison.expected_columns,
     );
 
-    let _rows_affected = db
-        .execute(&copy_sql, &[])
-        .await
-        .map_err(|e| Error::migration(format!("Failed to migrate data: {}", e), None, Some("migrate_data".to_string())))?;
+    let _rows_affected = db.execute(&copy_sql, &[]).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to migrate data: {}", e),
+            None,
+            Some("migrate_data".to_string()),
+        )
+    })?;
 
     // Step 3: Rename original table to backup
     let rename_to_backup = format!("ALTER TABLE {} RENAME TO {}", table_name, backup_name);
-    db.execute(&rename_to_backup, &[])
-        .await
-        .map_err(|e| Error::migration(format!("Failed to create backup: {}", e), None, Some("create_backup".to_string())))?;
+    db.execute(&rename_to_backup, &[]).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to create backup: {}", e),
+            None,
+            Some("create_backup".to_string()),
+        )
+    })?;
 
     // Step 4: Rename new table to original name
     let rename_to_original = format!("ALTER TABLE {} RENAME TO {}", temp_table_name, table_name);
-    db.execute(&rename_to_original, &[])
-        .await
-        .map_err(|e| Error::migration(format!("Failed to rename new table: {}", e), None, Some("rename_table".to_string())))?;
+    db.execute(&rename_to_original, &[]).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to rename new table: {}", e),
+            None,
+            Some("rename_table".to_string()),
+        )
+    })?;
 
     // Step 5: Verify migration success
     let verification_sql = format!("SELECT COUNT(*) FROM {}", table_name);
-    let rows = db
-        .query(&verification_sql, &[])
-        .await
-        .map_err(|e| Error::migration(format!("Failed to verify migration: {}", e), None, Some("verify_migration".to_string())))?;
+    let rows = db.query(&verification_sql, &[]).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to verify migration: {}", e),
+            None,
+            Some("verify_migration".to_string()),
+        )
+    })?;
 
     let row_count: i64 = if let Some(row) = rows.get(0) {
         row.get(0)
@@ -825,9 +871,18 @@ fn generate_data_migration_sql(
                 select_columns.push(format!("\"{}\"", target_col.name));
             } else {
                 // Different types, need conversion
-                println!("DEBUG: Converting column '{}' from '{}' to '{}'", target_col.name, source_col.sql_type, target_col.sql_type);
-                let conversion = generate_type_conversion(&source_col.sql_type, &target_col.sql_type, &target_col.name);
-                println!("DEBUG: Generated conversion SQL: {}", conversion);
+                trace!(
+                    "Converting column '{}' from '{}' to '{}'",
+                    target_col.name,
+                    source_col.sql_type,
+                    target_col.sql_type
+                );
+                let conversion = generate_type_conversion(
+                    &source_col.sql_type,
+                    &target_col.sql_type,
+                    &target_col.name,
+                );
+                debug!("Generated conversion SQL: {}", conversion);
                 select_columns.push(conversion);
             }
         } else {
@@ -891,7 +946,11 @@ async fn check_backups_retention(
         if should_delete {
             let drop_sql = format!("DROP TABLE IF EXISTS \"{}\" CASCADE", old_table.name);
             db.execute(&drop_sql, &[]).await.map_err(|e| {
-                Error::migration(format!("Failed to drop old migration table: {}", e), None, Some("drop_table".to_string()))
+                Error::migration(
+                    format!("Failed to drop old migration table: {}", e),
+                    None,
+                    Some("drop_table".to_string()),
+                )
             })?;
 
             tracing::info!(
@@ -925,10 +984,13 @@ async fn get_all_migration_tables(
     let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
         params.iter().map(|p| p.as_ref()).collect();
 
-    let rows = db
-        .query(query, &param_refs)
-        .await
-        .map_err(|e| Error::migration(format!("Failed to query migration tables: {}", e), None, Some("query_tables".to_string())))?;
+    let rows = db.query(query, &param_refs).await.map_err(|e| {
+        Error::migration(
+            format!("Failed to query migration tables: {}", e),
+            None,
+            Some("query_tables".to_string()),
+        )
+    })?;
 
     let mut migration_tables = Vec::new();
 

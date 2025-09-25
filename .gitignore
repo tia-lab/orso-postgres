@@ -4,6 +4,7 @@
 *.pdb
 Cargo.lock
 orse-reference
+.mcp*
 
 # Node.js & Dependencies  
 node_modules/
