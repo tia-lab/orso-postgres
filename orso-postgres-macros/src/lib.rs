@@ -171,15 +171,15 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 #primary_key_setter
             }
 
-            fn get_created_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+            fn get_created_at(&self) -> Option<orso_postgres::OrsoDateTime> {
                 #created_at_getter
             }
 
-            fn get_updated_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+            fn get_updated_at(&self) -> Option<orso_postgres::OrsoDateTime> {
                 #updated_at_getter
             }
 
-            fn set_updated_at(&mut self, updated_at: chrono::DateTime<chrono::Utc>) {
+            fn set_updated_at(&mut self, updated_at: orso_postgres::OrsoDateTime) {
                 #updated_at_setter
             }
 

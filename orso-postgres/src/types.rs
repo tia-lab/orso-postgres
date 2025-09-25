@@ -1,5 +1,5 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use chrono::{DateTime, TimeZone, Utc};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value {
@@ -9,11 +9,11 @@ pub enum Value {
     Text(String),
     Blob(Vec<u8>),
     Boolean(bool),
-    DateTime(DateTime<Utc>),
+    DateTime(OrsoDateTime),
     // Array types for PostgreSQL native arrays
-    IntegerArray(Vec<i32>),    // INTEGER[] - for i32, i16, i8, u32, u16, u8
-    BigIntArray(Vec<i64>),     // BIGINT[] - for i64, u64
-    NumericArray(Vec<f64>),    // DOUBLE PRECISION[] - for f64, f32
+    IntegerArray(Vec<i32>), // INTEGER[] - for i32, i16, i8, u32, u16, u8
+    BigIntArray(Vec<i64>),  // BIGINT[] - for i64, u64
+    NumericArray(Vec<f64>), // DOUBLE PRECISION[] - for f64, f32
 }
 
 impl From<i64> for Value {
@@ -99,14 +99,14 @@ impl From<Option<Vec<u8>>> for Value {
 
 impl From<DateTime<Utc>> for Value {
     fn from(v: DateTime<Utc>) -> Self {
-        Value::DateTime(v)
+        Value::DateTime(OrsoDateTime::new(v))
     }
 }
 
 impl From<Option<DateTime<Utc>>> for Value {
     fn from(v: Option<DateTime<Utc>>) -> Self {
         match v {
-            Some(dt) => Value::DateTime(dt),
+            Some(dt) => Value::DateTime(OrsoDateTime::new(dt)),
             None => Value::Null,
         }
     }
@@ -246,9 +246,9 @@ impl Value {
             Value::Real(f) => Box::new(*f),
             Value::Text(s) => Box::new(s.clone()),
             Value::DateTime(dt) => {
-                // Convert DateTime directly to SystemTime for PostgreSQL
-                Box::new(std::time::SystemTime::from(*dt))
-            },
+                // Convert OrsoDateTime directly to SystemTime for PostgreSQL
+                Box::new(std::time::SystemTime::from(*dt.inner()))
+            }
             Value::Blob(b) => Box::new(b.clone()),
             Value::Boolean(b) => Box::new(*b),
             // Array types - pass directly to PostgreSQL
@@ -293,7 +293,7 @@ impl Value {
                 Ok(val
                     .map(|st| {
                         let datetime = chrono::DateTime::<chrono::Utc>::from(st);
-                        Value::DateTime(datetime)
+                        Value::DateTime(OrsoDateTime::new(datetime))
                     })
                     .unwrap_or(Value::Null))
             }
@@ -322,11 +322,11 @@ impl Value {
 }
 
 /// DateTime wrapper that ensures consistent PostgreSQL timestamp handling
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Timestamp(pub DateTime<Utc>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OrsoDateTime(pub chrono::DateTime<Utc>);
 
-impl Timestamp {
-    pub fn new(dt: DateTime<Utc>) -> Self {
+impl OrsoDateTime {
+    pub fn new(dt: chrono::DateTime<Utc>) -> Self {
         Self(dt)
     }
 
@@ -334,53 +334,53 @@ impl Timestamp {
         Self(Utc::now())
     }
 
-    pub fn inner(&self) -> &DateTime<Utc> {
+    pub fn inner(&self) -> &chrono::DateTime<Utc> {
         &self.0
     }
 
-    pub fn into_inner(self) -> DateTime<Utc> {
+    pub fn into_inner(self) -> chrono::DateTime<Utc> {
         self.0
     }
 }
 
-impl From<DateTime<Utc>> for Timestamp {
-    fn from(dt: DateTime<Utc>) -> Self {
+impl From<chrono::DateTime<Utc>> for OrsoDateTime {
+    fn from(dt: chrono::DateTime<Utc>) -> Self {
         Self(dt)
     }
 }
 
-impl From<Timestamp> for DateTime<Utc> {
-    fn from(ts: Timestamp) -> Self {
+impl From<OrsoDateTime> for chrono::DateTime<Utc> {
+    fn from(ts: OrsoDateTime) -> Self {
         ts.0
     }
 }
 
-impl std::ops::Deref for Timestamp {
-    type Target = DateTime<Utc>;
+impl std::ops::Deref for OrsoDateTime {
+    type Target = chrono::DateTime<Utc>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Default for Timestamp {
+impl Default for OrsoDateTime {
     fn default() -> Self {
         Self(Utc.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap())
     }
 }
 
-impl Serialize for Timestamp {
+impl Serialize for OrsoDateTime {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         // Always use PostgreSQL format for serialization
-        let formatted = crate::Utils::create_timestamp(self.0);
+        let formatted = crate::Utils::create_timestamp(self.clone());
         serializer.serialize_str(&formatted)
     }
 }
 
-impl<'de> Deserialize<'de> for Timestamp {
+impl<'de> Deserialize<'de> for OrsoDateTime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -388,28 +388,27 @@ impl<'de> Deserialize<'de> for Timestamp {
         use serde::de::Error;
         let s = String::deserialize(deserializer)?;
         crate::Utils::parse_timestamp(&s)
-            .map(Timestamp)
             .map_err(|e| Error::custom(format!("Invalid timestamp format: {}", e)))
     }
 }
 
-impl From<Timestamp> for Value {
-    fn from(ts: Timestamp) -> Self {
-        Value::DateTime(ts.0)
+impl From<OrsoDateTime> for Value {
+    fn from(ts: OrsoDateTime) -> Self {
+        Value::DateTime(ts)
     }
 }
 
-impl From<Option<Timestamp>> for Value {
-    fn from(ts: Option<Timestamp>) -> Self {
+impl From<Option<OrsoDateTime>> for Value {
+    fn from(ts: Option<OrsoDateTime>) -> Self {
         match ts {
-            Some(t) => Value::DateTime(t.0),
+            Some(t) => Value::DateTime(t),
             None => Value::Null,
         }
     }
 }
 
 // PostgreSQL trait implementations for Timestamp
-impl tokio_postgres::types::ToSql for Timestamp {
+impl tokio_postgres::types::ToSql for OrsoDateTime {
     fn to_sql(
         &self,
         _ty: &tokio_postgres::types::Type,
@@ -430,14 +429,14 @@ impl tokio_postgres::types::ToSql for Timestamp {
     tokio_postgres::types::to_sql_checked!();
 }
 
-impl<'a> tokio_postgres::types::FromSql<'a> for Timestamp {
+impl<'a> tokio_postgres::types::FromSql<'a> for OrsoDateTime {
     fn from_sql(
         ty: &tokio_postgres::types::Type,
         raw: &'a [u8],
     ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         let system_time = std::time::SystemTime::from_sql(ty, raw)?;
         let datetime = chrono::DateTime::<chrono::Utc>::from(system_time);
-        Ok(Timestamp(datetime))
+        Ok(OrsoDateTime(datetime))
     }
 
     fn accepts(ty: &tokio_postgres::types::Type) -> bool {
@@ -447,7 +446,6 @@ impl<'a> tokio_postgres::types::FromSql<'a> for Timestamp {
         )
     }
 }
-
 
 pub fn deserialize_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
@@ -475,5 +473,12 @@ where
             ))),
         },
         _ => Err(Error::custom("Expected boolean, integer, or string")),
+    }
+}
+
+// Additional trait implementations for OrsoDateTime compatibility
+impl From<OrsoDateTime> for std::time::SystemTime {
+    fn from(dt: OrsoDateTime) -> Self {
+        std::time::SystemTime::from(dt.0)
     }
 }
