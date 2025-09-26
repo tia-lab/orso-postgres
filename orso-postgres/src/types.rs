@@ -14,6 +14,8 @@ pub enum Value {
     IntegerArray(Vec<i32>), // INTEGER[] - for i32, i16, i8, u32, u16, u8
     BigIntArray(Vec<i64>),  // BIGINT[] - for i64, u64
     NumericArray(Vec<f64>), // DOUBLE PRECISION[] - for f64, f32
+    // Vector types for pgvector extension
+    Vector(Vec<f32>),       // vector(N) - for embeddings/ML vectors
 }
 
 impl From<i64> for Value {
@@ -92,6 +94,21 @@ impl From<Option<Vec<u8>>> for Value {
     fn from(v: Option<Vec<u8>>) -> Self {
         match v {
             Some(b) => Value::Blob(b),
+            None => Value::Null,
+        }
+    }
+}
+
+impl From<Vec<f32>> for Value {
+    fn from(v: Vec<f32>) -> Self {
+        Value::Vector(v)
+    }
+}
+
+impl From<Option<Vec<f32>>> for Value {
+    fn from(v: Option<Vec<f32>>) -> Self {
+        match v {
+            Some(vec) => Value::Vector(vec),
             None => Value::Null,
         }
     }
@@ -255,6 +272,8 @@ impl Value {
             Value::IntegerArray(arr) => Box::new(arr.clone()),
             Value::BigIntArray(arr) => Box::new(arr.clone()),
             Value::NumericArray(arr) => Box::new(arr.clone()),
+            // Vector types - pass directly to PostgreSQL (pgvector handles Vec<f32>)
+            Value::Vector(v) => Box::new(v.clone()),
         }
     }
 
@@ -311,6 +330,11 @@ impl Value {
                 // PostgreSQL DOUBLE PRECISION array
                 let val: Option<Vec<f64>> = row.try_get(idx)?;
                 Ok(val.map(Value::NumericArray).unwrap_or(Value::Null))
+            }
+            "vector" => {
+                // PostgreSQL vector type (from pgvector extension)
+                let val: Option<Vec<f32>> = row.try_get(idx)?;
+                Ok(val.map(Value::Vector).unwrap_or(Value::Null))
             }
             _ => {
                 // Try as string for unknown types

@@ -15,6 +15,8 @@ pub enum FieldType {
     IntegerArray,  // INTEGER[]
     BigIntArray,   // BIGINT[]
     NumericArray,  // DOUBLE PRECISION[]
+    // Vector types for pgvector extension
+    Vector(u32),   // vector(N) - for embeddings/ML vectors
 }
 
 #[allow(async_fn_in_trait)]

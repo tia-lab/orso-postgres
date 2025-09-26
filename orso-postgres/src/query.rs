@@ -497,6 +497,47 @@ impl QueryBuilder {
 
         Ok(PaginatedResult::with_total(data, pagination.clone(), total))
     }
+
+    /// Add vector similarity search with cosine distance
+    pub fn vector_search(self, column: &str, vector: &[f32], limit: u32) -> Self {
+        // Convert vector to PostgreSQL vector format
+        let vector_str = format!("[{}]", vector.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(","));
+
+        // Add vector distance condition and ordering
+        let condition = format!("{} <-> '{}'::vector", column, vector_str);
+        self.order_by(Sort::new(&condition, crate::SortOrder::Asc))
+            .limit(limit)
+    }
+
+    /// Add vector similarity filter with threshold
+    pub fn vector_similar(mut self, column: &str, vector: &[f32], threshold: Option<f64>) -> Self {
+        // Convert vector to PostgreSQL vector format
+        let vector_str = format!("[{}]", vector.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(","));
+
+        if let Some(threshold) = threshold {
+            // Add similarity threshold condition
+            let condition = format!("{} <-> '{}'::vector < {}", column, vector_str, threshold);
+            self.where_clauses.push(FilterOperator::Custom(condition));
+        }
+
+        self
+    }
+
+    /// Add vector similarity search with custom distance operator
+    pub fn vector_distance(mut self, column: &str, vector: &[f32], operator: &str, threshold: Option<f64>) -> Self {
+        // Convert vector to PostgreSQL vector format
+        let vector_str = format!("[{}]", vector.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(","));
+
+        if let Some(threshold) = threshold {
+            // Add distance threshold condition
+            let condition = format!("{} {} '{}'::vector < {}", column, operator, vector_str, threshold);
+            self.where_clauses.push(FilterOperator::Custom(condition));
+        }
+
+        // Order by distance
+        let order_condition = format!("{} {} '{}'::vector", column, operator, vector_str);
+        self.order_by(Sort::new(&order_condition, crate::SortOrder::Asc))
+    }
 }
 
 impl Clone for QueryBuilder {

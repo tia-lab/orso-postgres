@@ -1,22 +1,22 @@
 # orso-postgres
 
-A PostgreSQL ORM for Rust with compression support and zero-loss migrations.
+A PostgreSQL ORM for Rust with compression support, vector search capabilities, and automatic migrations.
 
 ## Overview
 
-orso-postgres is a PostgreSQL-specific ORM that provides derive-based schema definition, automatic migrations, data compression for large integer arrays, and comprehensive CRUD operations. It maintains API compatibility with the original orso library while leveraging PostgreSQL's advanced features.
+orso-postgres is a PostgreSQL adapter that provides derive-based schema definition, data compression for integer arrays, vector search integration, and CRUD operations. It uses `tokio-postgres` for async database operations and includes connection pooling for concurrent applications.
 
-## Core Features
+## Features
 
-- **Derive-based schema definition**: Use `#[derive(Orso)]` to generate database schema from Rust structs
-- **PostgreSQL native support**: Built specifically for PostgreSQL using `tokio-postgres` and connection pooling
-- **Data compression**: Built-in compression for integer arrays with 5-10x space reduction using cydec
-- **Zero-loss migrations**: Automatic schema migrations with complete data preservation
-- **DateTime handling**: Proper PostgreSQL timestamp support with custom `Timestamp` wrapper
-- **Connection pooling**: Efficient connection management using `deadpool-postgres`
-- **Comprehensive querying**: Filtering, sorting, pagination, and query building
-- **Batch operations**: Optimized bulk insert/update/delete operations
-- **Multi-table support**: Runtime table selection with `_with_table` methods
+- **Derive macros**: Generate database schema from Rust structs using `#[derive(Orso)]`
+- **PostgreSQL integration**: Built on `tokio-postgres` with connection pooling via `deadpool-postgres`
+- **Data compression**: Compress integer arrays to reduce storage size using cydec codec
+- **Vector search**: Support for PostgreSQL vector operations with pgvector extension
+- **Automatic migrations**: Schema changes with data preservation
+- **DateTime support**: PostgreSQL timestamp handling with `OrsoDateTime` wrapper
+- **Query building**: Filtering, sorting, pagination, and custom queries
+- **Batch operations**: Bulk insert/update/delete operations
+- **Multi-table operations**: Use one struct definition across multiple tables
 
 ## Installation
 
@@ -32,7 +32,7 @@ orso-postgres = "0.0.2"
 ### 1. Define Your Model
 
 ```rust
-use orso_postgres::{Orso, Timestamp};
+use orso_postgres::{Orso, OrsoDateTime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
@@ -47,10 +47,10 @@ struct User {
     name: String,
     age: i32,
 
-    // Use our DateTime wrapper for proper PostgreSQL timestamp handling
-    birth_date: Timestamp,
+    // DateTime wrapper for PostgreSQL timestamp handling
+    birth_date: OrsoDateTime,
 
-    // Or use chrono::DateTime directly (also supported)
+    // chrono::DateTime also supported
     last_login: Option<chrono::DateTime<chrono::Utc>>,
 
     #[orso_column(created_at)]
@@ -91,7 +91,7 @@ let user = User {
     email: "john@example.com".to_string(),
     name: "John Doe".to_string(),
     age: 30,
-    birth_date: Timestamp::now(),
+    birth_date: OrsoDateTime::now(),
     last_login: Some(chrono::Utc::now()),
     created_at: None, // Auto-managed
     updated_at: None, // Auto-managed
@@ -140,8 +140,9 @@ let db = Database::init(config).await?;
 | `f64`, `f32`              | DOUBLE PRECISION        |
 | `bool`                    | BOOLEAN                 |
 | `Vec<u8>`                 | BYTEA                   |
-| `Timestamp`               | TIMESTAMP               |
+| `OrsoDateTime`            | TIMESTAMP               |
 | `chrono::DateTime<Utc>`   | TIMESTAMP               |
+| `Vec<f32>`                | vector(N)               |
 | `Vec<i32>` (compressed)   | BYTEA                   |
 | `Vec<i64>` (compressed)   | BYTEA                   |
 | `Vec<i32>` (normal)       | INTEGER[]               |
@@ -149,19 +150,75 @@ let db = Database::init(config).await?;
 | `Vec<f64>` (normal)       | DOUBLE PRECISION[]      |
 | `Option<T>`               | T (nullable)            |
 
-### DateTime Handling
+### Vector Search
 
-orso-postgres provides proper PostgreSQL timestamp handling:
+Vector search support for embeddings and machine learning applications using PostgreSQL's pgvector extension:
 
 ```rust
-use orso_postgres::Timestamp;
+use orso_postgres::{QueryBuilder, Orso};
+use serde::{Deserialize, Serialize};
+
+#[derive(Orso, Serialize, Deserialize, Clone, Debug)]
+#[orso_table("documents")]
+struct Document {
+    #[orso_column(primary_key)]
+    id: Option<String>,
+
+    title: String,
+    content: String,
+
+    // Vector field for content embeddings (1536 dimensions for OpenAI ada-002)
+    #[orso_column(vector(1536))]
+    content_embedding: Vec<f32>,
+
+    // Smaller vector for title embeddings
+    #[orso_column(vector(768))]
+    title_embedding: Vec<f32>,
+}
+
+// Vector similarity search
+let query_vector = vec![0.1f32; 1536];
+let similar_docs = QueryBuilder::new("documents")
+    .vector_search("content_embedding", &query_vector, 10)
+    .execute::<Document>(&db)
+    .await?;
+
+// Vector similarity with threshold
+let filtered_docs = QueryBuilder::new("documents")
+    .vector_similar("content_embedding", &query_vector, Some(0.8))
+    .execute::<Document>(&db)
+    .await?;
+
+// Custom distance operators (<->, <#>, <=>)
+let distance_query = QueryBuilder::new("documents")
+    .vector_distance("content_embedding", &query_vector, "<->", Some(0.5))
+    .execute::<Document>(&db)
+    .await?;
+
+// Hybrid text + vector search
+let hybrid_results = QueryBuilder::new("documents")
+    .search("content", "machine learning")
+    .vector_similar("content_embedding", &query_vector, Some(0.8))
+    .limit(5)
+    .execute::<Document>(&db)
+    .await?;
+```
+
+**Note**: Requires pgvector extension: `CREATE EXTENSION vector;`
+
+### DateTime Handling
+
+PostgreSQL timestamp support using the `OrsoDateTime` wrapper:
+
+```rust
+use orso_postgres::OrsoDateTime;
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
 struct Event {
-    // Recommended: Use our Timestamp wrapper for consistent PostgreSQL formatting
-    event_time: Timestamp,
+    // OrsoDateTime wrapper for consistent PostgreSQL formatting
+    event_time: OrsoDateTime,
 
-    // Also supported: Direct chrono::DateTime usage
+    // Direct chrono::DateTime usage also supported
     created_at: chrono::DateTime<chrono::Utc>,
 
     // Auto-managed timestamps
@@ -174,7 +231,7 @@ struct Event {
 
 // Usage
 let event = Event {
-    event_time: Timestamp::now(),
+    event_time: OrsoDateTime::now(),
     created_at: chrono::Utc::now(),
     auto_created: None, // Automatically set by database
     auto_updated: None, // Automatically set by database
@@ -447,7 +504,7 @@ match User::find_by_id("user-id", &db).await {
 
 ## Column Attributes
 
-Complete attribute support:
+Available column attributes:
 
 ```rust
 #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
@@ -467,6 +524,9 @@ struct Product {
 
     #[orso_column(compress)]
     sales_history: Vec<i64>,
+
+    #[orso_column(vector(384))]
+    product_embedding: Vec<f32>,
 
     #[orso_column(created_at)]
     created_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -569,7 +629,7 @@ Key dependencies and their purposes:
 ## Example: Complete Application
 
 ```rust
-use orso_postgres::{Database, DatabaseConfig, Migrations, migration, Orso, Timestamp};
+use orso_postgres::{Database, DatabaseConfig, Migrations, migration, Orso, OrsoDateTime};
 use serde::{Deserialize, Serialize};
 
 #[derive(Orso, Serialize, Deserialize, Clone, Debug)]
@@ -584,14 +644,18 @@ struct TradingData {
     price: f64,
     volume: i64,
 
-    // Compressed for space efficiency
+    // Compressed integer arrays for space efficiency
     #[orso_column(compress)]
     price_history: Vec<i64>,
 
     #[orso_column(compress)]
     volume_history: Vec<u64>,
 
-    timestamp: Timestamp,
+    // Vector field for price embeddings (machine learning features)
+    #[orso_column(vector(512))]
+    price_embedding: Vec<f32>,
+
+    timestamp: OrsoDateTime,
 
     #[orso_column(created_at)]
     created_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -610,7 +674,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run migrations
     Migrations::init(&db, &[migration!(TradingData)]).await?;
 
-    // Create trading data
+    // Create trading data with embeddings
+    let price_features = vec![0.1f32; 512]; // Placeholder for ML features
     let btc_data = TradingData {
         id: None,
         symbol: "BTCUSDT".to_string(),
@@ -618,12 +683,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         volume: 1000000,
         price_history: (0..1000).map(|i| 45000 + i).collect(),
         volume_history: (0..1000).map(|i| 1000000 + i as u64).collect(),
-        timestamp: Timestamp::now(),
+        price_embedding: price_features,
+        timestamp: OrsoDateTime::now(),
         created_at: None,
         updated_at: None,
     };
 
-    // Insert data (compression happens automatically)
+    // Insert data (compression and vector storage happen automatically)
     btc_data.insert(&db).await?;
 
     // Query data
@@ -631,19 +697,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Found {} trading symbols", all_symbols.len());
 
     // Find specific symbol
-    use orso_postgres::{filter, filter_op};
+    use orso_postgres::{filter, filter_op, QueryBuilder};
     let btc_records = TradingData::find_where(
         filter_op!(filter!("symbol", orso_postgres::Operator::Eq, "BTCUSDT")),
         &db
     ).await?;
 
     for record in btc_records {
-        println!("BTC Price: {}, History entries: {}",
-            record.price, record.price_history.len());
+        println!("BTC Price: {}, History entries: {}, Vector dims: {}",
+            record.price, record.price_history.len(), record.price_embedding.len());
     }
+
+    // Vector similarity search for similar price patterns
+    let query_vector = vec![0.15f32; 512];
+    let similar_patterns = QueryBuilder::new("trading_data")
+        .vector_search("price_embedding", &query_vector, 5)
+        .execute::<TradingData>(&db)
+        .await?;
+
+    println!("Found {} similar trading patterns", similar_patterns.len());
 
     Ok(())
 }
 ```
 
-This example demonstrates the complete workflow: connection setup, migrations, data compression, and querying with the orso-postgres ORM.
+This example demonstrates connection setup, migrations, data compression, vector storage, and similarity search using orso-postgres.

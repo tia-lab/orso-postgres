@@ -692,9 +692,28 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             }
                                         }
                                         orso_postgres::FieldType::NumericArray => {
-                                            // Convert JSON array to Vec<f64>
+                                            // Convert JSON array to Vec<f64> with robust handling
                                             let vec: Result<Vec<f64>, _> = arr.iter()
-                                                .map(|v| v.as_f64().ok_or("not f64"))
+                                                .map(|v| {
+                                                    // Handle multiple JSON representations
+                                                    if let Some(f) = v.as_f64() {
+                                                        // Normal numeric value
+                                                        Ok(f)
+                                                    } else if let Some(s) = v.as_str() {
+                                                        // Handle string representations: "NaN", "inf", "-inf"
+                                                        match s.to_lowercase().as_str() {
+                                                            "nan" => Ok(f64::NAN),
+                                                            "inf" | "infinity" => Ok(f64::INFINITY),
+                                                            "-inf" | "-infinity" => Ok(f64::NEG_INFINITY),
+                                                            _ => s.parse::<f64>().map_err(|_| "not f64")
+                                                        }
+                                                    } else if v.is_null() {
+                                                        // Handle null as NaN (common in financial data)
+                                                        Ok(f64::NAN)
+                                                    } else {
+                                                        Err("not f64")
+                                                    }
+                                                })
                                                 .collect();
                                             match vec {
                                                 Ok(v) => orso_postgres::Value::NumericArray(v),
@@ -770,6 +789,18 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                         _ => compressed_i64_blobs.insert(k.clone(), blob.clone()), // Default to i64
                                     };
                                 } else {
+                                    // Check if this looks like JSON array data (migration fallback)
+                                    if let Ok(json_str) = std::str::from_utf8(blob) {
+                                        if json_str.starts_with('[') && json_str.ends_with(']') {
+                                            if let Ok(json_array) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                                if let serde_json::Value::Array(_) = json_array {
+                                                    // This is JSON array data from migration, handle directly
+                                                    json_map.insert(k.clone(), json_array);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
                                     // Unknown format, assume i64
                                     compressed_i64_blobs.insert(k.clone(), blob.clone());
                                 }
@@ -821,6 +852,19 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             arr.iter()
                                             .map(|f| {
                                                 if let Some(n) = serde_json::Number::from_f64(*f) {
+                                                    serde_json::Value::Number(n)
+                                                } else {
+                                                    serde_json::Value::String(f.to_string())
+                                                }
+                                            })
+                                            .collect()
+                                        )
+                                    }
+                                    orso_postgres::Value::Vector(v) => {
+                                        serde_json::Value::Array(
+                                            v.iter()
+                                            .map(|f| {
+                                                if let Some(n) = serde_json::Number::from_f64(*f as f64) {
                                                     serde_json::Value::Number(n)
                                                 } else {
                                                     serde_json::Value::String(f.to_string())
@@ -1308,6 +1352,19 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                 .collect()
                             )
                         }
+                        orso_postgres::Value::Vector(v) => {
+                            serde_json::Value::Array(
+                                v.iter()
+                                .map(|f| {
+                                    if let Some(n) = serde_json::Number::from_f64(*f as f64) {
+                                        serde_json::Value::Number(n)
+                                    } else {
+                                        serde_json::Value::String(f.to_string())
+                                    }
+                                })
+                                .collect()
+                            )
+                        }
                         orso_postgres::Value::DateTime(dt) => {
                             match serde_json::to_value(*dt) {
                                 Ok(val) => val,
@@ -1350,6 +1407,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     orso_postgres::Value::IntegerArray(arr) => Box::new(arr.clone()),
                     orso_postgres::Value::BigIntArray(arr) => Box::new(arr.clone()),
                     orso_postgres::Value::NumericArray(arr) => Box::new(arr.clone()),
+                    orso_postgres::Value::Vector(v) => Box::new(v.clone()),
                 }
             }
         }
@@ -1385,6 +1443,7 @@ fn parse_orso_column_attr(
     let mut unique = false;
     let mut primary_key = false;
     let mut is_compressed = false;
+    let mut vector_dimensions: Option<u32> = None;
 
     let mut is_created_at = false;
     let mut is_updated_at = false;
@@ -1415,6 +1474,17 @@ fn parse_orso_column_attr(
             is_updated_at = true;
         } else if meta.path.is_ident("compress") {
             is_compressed = true;
+        } else if meta.path.is_ident("vector") {
+            // Parse vector(N) attribute
+            if meta.input.peek(syn::token::Paren) {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                if let Ok(lit) = content.parse::<syn::LitInt>() {
+                    if let Ok(dimensions) = lit.base10_parse::<u32>() {
+                        vector_dimensions = Some(dimensions);
+                    }
+                }
+            }
         }
         Ok(())
     });
@@ -1423,6 +1493,8 @@ fn parse_orso_column_attr(
     // For compressed fields, we always use BYTEA type (PostgreSQL binary data)
     let base_type = if is_compressed {
         "BYTEA".to_string()
+    } else if let Some(dimensions) = vector_dimensions {
+        format!("vector({})", dimensions) // PostgreSQL pgvector type
     } else if is_foreign_key {
         "TEXT".to_string() // Foreign keys are always TEXT (UUID)
     } else {
@@ -1563,9 +1635,32 @@ fn map_vec_to_array_field_type(inner_type: &syn::Type) -> proc_macro2::TokenStre
 // Map field types to FieldType enum
 fn map_field_type(
     rust_type: &syn::Type,
-    _field: &syn::Field,
+    field: &syn::Field,
     is_compressed: bool,
 ) -> proc_macro2::TokenStream {
+    // First check for vector attribute
+    for attr in &field.attrs {
+        if attr.path().is_ident("orso_column") {
+            let mut vector_dimensions: Option<u32> = None;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("vector") {
+                    if meta.input.peek(syn::token::Paren) {
+                        let content;
+                        syn::parenthesized!(content in meta.input);
+                        if let Ok(lit) = content.parse::<syn::LitInt>() {
+                            if let Ok(dimensions) = lit.base10_parse::<u32>() {
+                                vector_dimensions = Some(dimensions);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            });
+            if let Some(dimensions) = vector_dimensions {
+                return quote! { orso_postgres::FieldType::Vector(#dimensions) };
+            }
+        }
+    }
     if let syn::Type::Path(type_path) = rust_type {
         if let Some(segment) = type_path.path.segments.last() {
             let type_name = segment.ident.to_string();
@@ -1600,7 +1695,7 @@ fn map_field_type(
                     // Handle Option<T> types - get the inner type
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                         if let Some(syn::GenericArgument::Type(inner_type)) = args.args.first() {
-                            return map_field_type(inner_type, _field, is_compressed);
+                            return map_field_type(inner_type, field, is_compressed);
                         }
                     }
                     quote! { orso_postgres::FieldType::Text }
