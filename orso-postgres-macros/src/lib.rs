@@ -692,9 +692,28 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                             }
                                         }
                                         orso_postgres::FieldType::NumericArray => {
-                                            // Convert JSON array to Vec<f64>
+                                            // Convert JSON array to Vec<f64> with robust handling
                                             let vec: Result<Vec<f64>, _> = arr.iter()
-                                                .map(|v| v.as_f64().ok_or("not f64"))
+                                                .map(|v| {
+                                                    // Handle multiple JSON representations
+                                                    if let Some(f) = v.as_f64() {
+                                                        // Normal numeric value
+                                                        Ok(f)
+                                                    } else if let Some(s) = v.as_str() {
+                                                        // Handle string representations: "NaN", "inf", "-inf"
+                                                        match s.to_lowercase().as_str() {
+                                                            "nan" => Ok(f64::NAN),
+                                                            "inf" | "infinity" => Ok(f64::INFINITY),
+                                                            "-inf" | "-infinity" => Ok(f64::NEG_INFINITY),
+                                                            _ => s.parse::<f64>().map_err(|_| "not f64")
+                                                        }
+                                                    } else if v.is_null() {
+                                                        // Handle null as NaN (common in financial data)
+                                                        Ok(f64::NAN)
+                                                    } else {
+                                                        Err("not f64")
+                                                    }
+                                                })
                                                 .collect();
                                             match vec {
                                                 Ok(v) => orso_postgres::Value::NumericArray(v),
