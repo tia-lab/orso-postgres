@@ -27,6 +27,7 @@ anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 async-trait = "0.1"
 cydec = { git = "https://github.com/tia-lab/cydec" }
+indexmap = { version = "2.0", features = ["serde"] }
 
 [dev-dependencies]
 tracing-test = "0.2"

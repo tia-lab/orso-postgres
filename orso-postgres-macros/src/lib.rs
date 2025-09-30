@@ -214,13 +214,14 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 )
             }
 
-            fn to_map(&self) -> orso_postgres::Result<std::collections::HashMap<String, orso_postgres::Value>> {
+            fn to_map(&self) -> orso_postgres::Result<orso_postgres::indexmap::IndexMap<String, orso_postgres::Value>> {
                 use serde_json;
                 let json = serde_json::to_value(self)?;
-                let map: std::collections::HashMap<String, serde_json::Value> =
+                // CRITICAL: Use IndexMap to preserve field order from struct
+                let map: orso_postgres::indexmap::IndexMap<String, serde_json::Value> =
                     serde_json::from_value(json)?;
 
-                let mut result = std::collections::HashMap::new();
+                let mut result = orso_postgres::indexmap::IndexMap::new();
 
                 // Get field names for auto-generated fields
                 let pk_field = Self::primary_key_field();
@@ -616,7 +617,20 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                     }
 
                     let value = match v {
-                        serde_json::Value::Null => orso_postgres::Value::Null,
+                        serde_json::Value::Null => {
+                            // Check field type to create type-aware null
+                            if let Some(pos) = field_names.iter().position(|&name| name == k) {
+                                if let Some(field_type) = field_types.get(pos) {
+                                    // For now, keep using Value::Null but we know the type
+                                    // This info will be used later when converting to postgres params
+                                    orso_postgres::Value::Null
+                                } else {
+                                    orso_postgres::Value::Null
+                                }
+                            } else {
+                                orso_postgres::Value::Null
+                            }
+                        },
                         serde_json::Value::Bool(b) => orso_postgres::Value::Boolean(b),
                         serde_json::Value::Number(n) => {
                             if let Some(i) = n.as_i64() {
@@ -737,7 +751,7 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                 Ok(result)
             }
 
-            fn from_map(mut map: std::collections::HashMap<String, orso_postgres::Value>) -> orso_postgres::Result<Self> {
+            fn from_map(mut map: orso_postgres::indexmap::IndexMap<String, orso_postgres::Value>) -> orso_postgres::Result<Self> {
                 use serde_json;
                 let mut json_map = serde_json::Map::new();
 
@@ -1385,8 +1399,8 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
 
             // Utility methods
-            fn row_to_map(row: &orso_postgres::tokio_postgres::Row) -> orso_postgres::Result<std::collections::HashMap<String, orso_postgres::Value>> {
-                let mut map = std::collections::HashMap::new();
+            fn row_to_map(row: &orso_postgres::tokio_postgres::Row) -> orso_postgres::Result<orso_postgres::indexmap::IndexMap<String, orso_postgres::Value>> {
+                let mut map = orso_postgres::indexmap::IndexMap::new();
                 for (i, column) in row.columns().iter().enumerate() {
                     let column_name = column.name();
                     let value = orso_postgres::Value::from_postgres_row(row, i)?;

@@ -16,6 +16,8 @@ mod test;
 // Re-export PostgreSQL dependencies for macro use
 pub use tokio_postgres;
 pub use postgres_types;
+// Re-export indexmap for ordered field preservation
+pub use indexmap;
 
 // Create orso module alias for macro compatibility
 pub mod orso {

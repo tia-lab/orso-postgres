@@ -2,7 +2,7 @@ use crate::{
     Aggregate, Database, Error, FilterOperator, PaginatedResult, Pagination, QueryBuilder, Result,
     SearchFilter, Sort, SortOrder,
 };
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use tracing::{debug, info, trace, warn};
 
 /// CRUD operations for database models
@@ -1352,9 +1352,9 @@ impl CrudOperations {
         }
     }
 
-    /// Convert a database row to a HashMap
-    pub fn row_to_map(row: &tokio_postgres::Row) -> Result<HashMap<String, crate::Value>> {
-        let mut map = HashMap::new();
+    /// Convert a database row to an IndexMap
+    pub fn row_to_map(row: &tokio_postgres::Row) -> Result<IndexMap<String, crate::Value>> {
+        let mut map = IndexMap::new();
         for (i, column) in row.columns().iter().enumerate() {
             let column_name = column.name();
             let value = crate::Value::from_postgres_row(row, i)?;

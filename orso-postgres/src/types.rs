@@ -16,6 +16,13 @@ pub enum Value {
     NumericArray(Vec<f64>), // DOUBLE PRECISION[] - for f64, f32
     // Vector types for pgvector extension
     Vector(Vec<f32>),       // vector(N) - for embeddings/ML vectors
+    // Typed null variants for proper PostgreSQL type handling
+    NullInteger,            // NULL for INTEGER/BIGINT columns
+    NullReal,               // NULL for REAL/DOUBLE columns
+    NullText,               // NULL for TEXT/VARCHAR columns
+    NullBoolean,            // NULL for BOOLEAN columns
+    NullDateTime,           // NULL for TIMESTAMP columns
+    NullBlob,               // NULL for BYTEA columns
 }
 
 impl From<i64> for Value {
@@ -249,7 +256,7 @@ impl std::fmt::Display for Operator {
 impl Value {
     pub fn to_postgres_param(&self) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
         match self {
-            Value::Null => Box::new(Option::<String>::None),
+            Value::Null => Box::new(Option::<i32>::None), // Use i32 as default for NULL to handle integer columns
             Value::Integer(i) => {
                 // Check if the value fits in i32 range for PostgreSQL INTEGER columns
                 if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {

@@ -1,6 +1,6 @@
 use crate::{Database, FilterOperator, OrsoDateTime, Result};
+use indexmap::IndexMap;
 use serde::{de::DeserializeOwned, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
@@ -55,8 +55,8 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
 
     fn migration_sql() -> String;
 
-    fn to_map(&self) -> Result<HashMap<String, crate::Value>>;
-    fn from_map(map: HashMap<String, crate::Value>) -> Result<Self>;
+    fn to_map(&self) -> Result<IndexMap<String, crate::Value>>;
+    fn from_map(map: IndexMap<String, crate::Value>) -> Result<Self>;
 
     async fn insert(&self, db: &Database) -> Result<()> {
         crate::operations::CrudOperations::insert(self, db).await
@@ -577,7 +577,7 @@ pub trait Orso: Serialize + DeserializeOwned + Send + Sync + Clone {
     }
 
     // Conversion functions with default implementations
-    fn row_to_map(row: &tokio_postgres::Row) -> Result<HashMap<String, crate::Value>> {
+    fn row_to_map(row: &tokio_postgres::Row) -> Result<IndexMap<String, crate::Value>> {
         crate::operations::CrudOperations::row_to_map(row)
     }
 
