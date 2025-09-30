@@ -618,12 +618,17 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                     let value = match v {
                         serde_json::Value::Null => {
-                            // Check field type to create type-aware null
+                            // Create type-aware null based on field type
                             if let Some(pos) = field_names.iter().position(|&name| name == k) {
                                 if let Some(field_type) = field_types.get(pos) {
-                                    // For now, keep using Value::Null but we know the type
-                                    // This info will be used later when converting to postgres params
-                                    orso_postgres::Value::Null
+                                    match field_type {
+                                        orso_postgres::FieldType::Integer | orso_postgres::FieldType::BigInt => orso_postgres::Value::NullInteger,
+                                        orso_postgres::FieldType::Numeric => orso_postgres::Value::NullReal,
+                                        orso_postgres::FieldType::Text => orso_postgres::Value::NullText,
+                                        orso_postgres::FieldType::Boolean => orso_postgres::Value::NullBoolean,
+                                        orso_postgres::FieldType::Timestamp => orso_postgres::Value::NullDateTime,
+                                        _ => orso_postgres::Value::Null, // Fallback for other types
+                                    }
                                 } else {
                                     orso_postgres::Value::Null
                                 }
@@ -830,6 +835,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
                                         }
                                     }
                                     orso_postgres::Value::Null => serde_json::Value::Null,
+                                    orso_postgres::Value::NullInteger => serde_json::Value::Null,
+                                    orso_postgres::Value::NullReal => serde_json::Value::Null,
+                                    orso_postgres::Value::NullText => serde_json::Value::Null,
+                                    orso_postgres::Value::NullBoolean => serde_json::Value::Null,
+                                    orso_postgres::Value::NullDateTime => serde_json::Value::Null,
+                                    orso_postgres::Value::NullBlob => serde_json::Value::Null,
                                     orso_postgres::Value::Boolean(b) => serde_json::Value::Bool(*b),
                                     orso_postgres::Value::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
                                     orso_postgres::Value::Real(f) => {
@@ -1300,6 +1311,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
 
                     let json_value = match v {
                         orso_postgres::Value::Null => serde_json::Value::Null,
+                        orso_postgres::Value::NullInteger => serde_json::Value::Null,
+                        orso_postgres::Value::NullReal => serde_json::Value::Null,
+                        orso_postgres::Value::NullText => serde_json::Value::Null,
+                        orso_postgres::Value::NullBoolean => serde_json::Value::Null,
+                        orso_postgres::Value::NullDateTime => serde_json::Value::Null,
+                        orso_postgres::Value::NullBlob => serde_json::Value::Null,
                         orso_postgres::Value::Boolean(b) => serde_json::Value::Bool(*b),
                         orso_postgres::Value::Integer(i) => {
                             // Check if this field should be a boolean based on field type
@@ -1412,6 +1429,12 @@ pub fn derive_orso(input: TokenStream) -> TokenStream {
             fn value_to_postgres_param(value: &orso_postgres::Value) -> Box<dyn orso_postgres::tokio_postgres::types::ToSql + Send + Sync> {
                 match value {
                     orso_postgres::Value::Null => Box::new(Option::<String>::None),
+                    orso_postgres::Value::NullInteger => Box::new(Option::<i32>::None),
+                    orso_postgres::Value::NullReal => Box::new(Option::<f64>::None),
+                    orso_postgres::Value::NullText => Box::new(Option::<String>::None),
+                    orso_postgres::Value::NullBoolean => Box::new(Option::<bool>::None),
+                    orso_postgres::Value::NullDateTime => Box::new(Option::<std::time::SystemTime>::None),
+                    orso_postgres::Value::NullBlob => Box::new(Option::<Vec<u8>>::None),
                     orso_postgres::Value::Integer(i) => Box::new(*i),
                     orso_postgres::Value::Real(f) => Box::new(*f),
                     orso_postgres::Value::Text(s) => Box::new(s.clone()),

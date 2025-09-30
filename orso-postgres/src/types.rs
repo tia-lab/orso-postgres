@@ -256,7 +256,13 @@ impl std::fmt::Display for Operator {
 impl Value {
     pub fn to_postgres_param(&self) -> Box<dyn tokio_postgres::types::ToSql + Send + Sync> {
         match self {
-            Value::Null => Box::new(Option::<i32>::None), // Use i32 as default for NULL to handle integer columns
+            Value::Null => Box::new(Option::<String>::None), // Legacy fallback
+            Value::NullInteger => Box::new(Option::<i32>::None),
+            Value::NullReal => Box::new(Option::<f64>::None),
+            Value::NullText => Box::new(Option::<String>::None),
+            Value::NullBoolean => Box::new(Option::<bool>::None),
+            Value::NullDateTime => Box::new(Option::<std::time::SystemTime>::None),
+            Value::NullBlob => Box::new(Option::<Vec<u8>>::None),
             Value::Integer(i) => {
                 // Check if the value fits in i32 range for PostgreSQL INTEGER columns
                 if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
@@ -291,27 +297,27 @@ impl Value {
         match type_name {
             "int8" | "bigint" => {
                 let val: Option<i64> = row.try_get(idx)?;
-                Ok(val.map(Value::Integer).unwrap_or(Value::Null))
+                Ok(val.map(Value::Integer).unwrap_or(Value::NullInteger))
             }
             "int4" | "integer" => {
                 let val: Option<i32> = row.try_get(idx)?;
-                Ok(val.map(|i| Value::Integer(i as i64)).unwrap_or(Value::Null))
+                Ok(val.map(|i| Value::Integer(i as i64)).unwrap_or(Value::NullInteger))
             }
             "float8" | "double precision" => {
                 let val: Option<f64> = row.try_get(idx)?;
-                Ok(val.map(Value::Real).unwrap_or(Value::Null))
+                Ok(val.map(Value::Real).unwrap_or(Value::NullReal))
             }
             "text" | "varchar" => {
                 let val: Option<String> = row.try_get(idx)?;
-                Ok(val.map(Value::Text).unwrap_or(Value::Null))
+                Ok(val.map(Value::Text).unwrap_or(Value::NullText))
             }
             "bytea" => {
                 let val: Option<Vec<u8>> = row.try_get(idx)?;
-                Ok(val.map(Value::Blob).unwrap_or(Value::Null))
+                Ok(val.map(Value::Blob).unwrap_or(Value::NullBlob))
             }
             "bool" | "boolean" => {
                 let val: Option<bool> = row.try_get(idx)?;
-                Ok(val.map(Value::Boolean).unwrap_or(Value::Null))
+                Ok(val.map(Value::Boolean).unwrap_or(Value::NullBoolean))
             }
             "timestamp" | "timestamptz" => {
                 // Handle PostgreSQL timestamps using SystemTime, convert to DateTime
@@ -346,7 +352,7 @@ impl Value {
             _ => {
                 // Try as string for unknown types
                 let val: Option<String> = row.try_get(idx)?;
-                Ok(val.map(Value::Text).unwrap_or(Value::Null))
+                Ok(val.map(Value::Text).unwrap_or(Value::NullText))
             }
         }
     }
