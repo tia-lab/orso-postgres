@@ -132,4 +132,25 @@ impl Database {
         let row = client.query_opt(sql, &sync_params).await?;
         Ok(row)
     }
+
+    /// Execute a batch operation using a single connection
+    /// This is used for batch inserts, updates, and upserts to avoid connection exhaustion
+    pub async fn execute_batch(
+        &self,
+        sql: &str,
+        params: &[&(dyn tokio_postgres::types::ToSql + Send + Sync)],
+    ) -> Result<u64> {
+        // Get a single connection for the entire batch
+        let client = self.pool.get().await?;
+
+        // Convert Send + Sync to Sync at the boundary (secure coercion)
+        let sync_params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| *p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
+
+        // Execute the batch operation on the same connection
+        let rows = client.execute(sql, &sync_params).await?;
+        Ok(rows)
+    }
 }

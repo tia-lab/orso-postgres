@@ -170,30 +170,53 @@ impl CrudOperations {
             return Ok(());
         }
 
-        // Use proper parameterized queries instead of building SQL strings
+        // Get columns from the first model
+        let first_map = models[0].to_map()?;
+        let columns: Vec<String> = first_map.keys().cloned().collect();
+        let num_columns = columns.len();
+
+        // Build multi-row INSERT statement
+        let mut all_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
+        let mut value_sets = Vec::new();
+        let mut param_index = 1;
+
         for model in models {
             let map = model.to_map()?;
-            let columns: Vec<String> = map.keys().cloned().collect();
-            let placeholders: Vec<String> =
-                (1..=columns.len()).map(|i| format!("${}", i)).collect();
+            let mut placeholders = Vec::new();
 
-            let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
-                .values()
-                .map(|v| v.to_postgres_param())
-                .collect();
+            // Add parameters for this row
+            for col in &columns {
+                if let Some(value) = map.get(col) {
+                    all_params.push(value.to_postgres_param());
+                    placeholders.push(format!("${}", param_index));
+                    param_index += 1;
+                } else {
+                    return Err(crate::Error::validation(
+                        &format!("Missing column {} in batch insert", col)
+                    ));
+                }
+            }
 
-            let sql = format!(
-                "INSERT INTO {} ({}) VALUES ({})",
-                table_name,
-                columns.join(", "),
-                placeholders.join(", ")
-            );
-
-            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
-                params.iter().map(|p| p.as_ref()).collect();
-
-            db.execute(&sql, &param_refs).await?;
+            value_sets.push(format!("({})", placeholders.join(", ")));
         }
+
+        // Build the complete SQL with all value sets
+        let sql = format!(
+            "INSERT INTO {} ({}) VALUES {}",
+            table_name,
+            columns.join(", "),
+            value_sets.join(", ")
+        );
+
+        debug!(sql = %sql, "Executing batch insert");
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            all_params.iter().map(|p| p.as_ref()).collect();
+
+        // Use execute_batch to ensure single connection
+        db.execute_batch(&sql, &param_refs).await?;
+
+        debug!(table = table_name, count = models.len(), "Batch insert completed");
         Ok(())
     }
 
@@ -769,48 +792,100 @@ impl CrudOperations {
             return Ok(());
         }
 
+        let pk_field = T::primary_key_field();
+        let updated_at_field = T::updated_at_field();
+
+        // Get columns from the first model (excluding primary key)
+        let first_map = models[0].to_map()?;
+        let update_columns: Vec<String> = first_map
+            .keys()
+            .filter(|k| *k != pk_field)
+            .cloned()
+            .collect();
+
+        if update_columns.is_empty() {
+            return Ok(()); // Nothing to update
+        }
+
+        // Build VALUES clause data
+        let mut all_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
+        let mut value_rows = Vec::new();
+        let mut param_index = 1;
+
+        // Add the ID and other columns for each model
         for model in models {
             let id = model.get_primary_key().ok_or_else(|| {
                 Error::validation("Cannot batch update record without primary key")
             })?;
 
             let map = model.to_map()?;
-            let pk_field = T::primary_key_field();
-            let updated_at_field = T::updated_at_field();
+            let mut row_placeholders = Vec::new();
 
-            let mut set_clauses = Vec::new();
-            let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
-            let mut param_index = 1;
+            // Add ID parameter
+            all_params.push(Box::new(id));
+            row_placeholders.push(format!("${}", param_index));
+            param_index += 1;
 
-            for (k, v) in &map {
-                if k != pk_field {
-                    // For updated_at fields, use database function instead of model value
-                    if updated_at_field.is_some() && k == updated_at_field.unwrap() {
-                        set_clauses.push(format!("{} = NOW()", k));
-                    } else {
-                        set_clauses.push(format!("{} = ${}", k, param_index));
-                        params.push(v.to_postgres_param());
-                        param_index += 1;
-                    }
+            // Add other column parameters
+            for col in &update_columns {
+                // Skip updated_at as we'll use NOW()
+                if updated_at_field.is_some() && col == updated_at_field.unwrap() {
+                    continue;
+                }
+
+                if let Some(value) = map.get(col) {
+                    all_params.push(value.to_postgres_param());
+                    row_placeholders.push(format!("${}", param_index));
+                    param_index += 1;
+                } else {
+                    return Err(crate::Error::validation(
+                        &format!("Missing column {} in batch update", col)
+                    ));
                 }
             }
 
-            // Add the ID parameter for the WHERE clause
-            params.push(Box::new(id.clone()));
-
-            let sql = format!(
-                "UPDATE {} SET {} WHERE {} = ${}",
-                table_name,
-                set_clauses.join(", "),
-                pk_field,
-                param_index
-            );
-
-            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
-                params.iter().map(|p| p.as_ref()).collect();
-
-            db.execute(&sql, &param_refs).await?;
+            value_rows.push(format!("({})", row_placeholders.join(", ")));
         }
+
+        // Build column list for VALUES clause (id + update columns minus updated_at)
+        let mut value_columns = vec![pk_field.to_string()];
+        for col in &update_columns {
+            if !(updated_at_field.is_some() && col == updated_at_field.unwrap()) {
+                value_columns.push(col.clone());
+            }
+        }
+
+        // Build SET clauses
+        let mut set_clauses = Vec::new();
+        for col in &update_columns {
+            if updated_at_field.is_some() && col == updated_at_field.unwrap() {
+                set_clauses.push(format!("{} = NOW()", col));
+            } else {
+                set_clauses.push(format!("{} = data.{}", col, col));
+            }
+        }
+
+        // Build the complete UPDATE with VALUES
+        let sql = format!(
+            "UPDATE {} SET {} FROM (VALUES {}) AS data({}) WHERE {}.{} = data.{}",
+            table_name,
+            set_clauses.join(", "),
+            value_rows.join(", "),
+            value_columns.join(", "),
+            table_name,
+            pk_field,
+            pk_field
+        );
+
+        debug!(sql = %sql, "Executing batch update");
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            all_params.iter().map(|p| p.as_ref()).collect();
+
+        // Use execute_batch to ensure single connection
+        db.execute_batch(&sql, &param_refs).await?;
+
+        debug!(table = table_name, count = models.len(), "Batch update completed");
         Ok(())
     }
 
@@ -1010,62 +1085,84 @@ impl CrudOperations {
             return Err(Error::validation("No unique columns defined with orso_column(unique) for batch upsert"));
         }
 
+        // Get columns from the first model
+        let first_map = models[0].to_map()?;
+        let columns: Vec<String> = first_map.keys().cloned().collect();
+        let updated_at_field = T::updated_at_field();
+
+        // Build multi-row INSERT statement
+        let mut all_params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = Vec::new();
+        let mut value_sets = Vec::new();
+        let mut param_index = 1;
+
         for model in models {
             let map = model.to_map()?;
+            let mut placeholders = Vec::new();
 
-            // Build conflict columns for ON CONFLICT clause
-            let conflict_columns = unique_columns.join(", ");
+            // Add parameters for this row
+            for col in &columns {
+                if let Some(value) = map.get(col) {
+                    all_params.push(value.to_postgres_param());
+                    placeholders.push(format!("${}", param_index));
+                    param_index += 1;
+                } else {
+                    return Err(crate::Error::validation(
+                        &format!("Missing column {} in batch upsert", col)
+                    ));
+                }
+            }
 
-            let columns: Vec<String> = map.keys().cloned().collect();
-            let placeholders: Vec<String> =
-                (1..=columns.len()).map(|i| format!("${}", i)).collect();
-
-            let params: Vec<Box<dyn tokio_postgres::types::ToSql + Send + Sync>> = map
-                .values()
-                .map(|v| v.to_postgres_param())
-                .collect();
-
-            // Build UPDATE SET clause for conflict resolution
-            let updated_at_field = T::updated_at_field();
-            let update_sets: Vec<String> = columns
-                .iter()
-                .filter(|col| !unique_columns.contains(&col.as_str())) // Don't update unique columns
-                .map(|col| {
-                    // For updated_at fields, use database function instead of excluded value
-                    if updated_at_field.is_some() && col == updated_at_field.unwrap() {
-                        format!("{} = NOW()", col)
-                    } else {
-                        format!("{} = EXCLUDED.{}", col, col)
-                    }
-                })
-                .collect();
-
-            let sql = if update_sets.is_empty() {
-                // If no columns to update, just ignore conflicts
-                format!(
-                    "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO NOTHING",
-                    table_name,
-                    columns.join(", "),
-                    placeholders.join(", "),
-                    conflict_columns
-                )
-            } else {
-                // Use INSERT ... ON CONFLICT DO UPDATE for proper upsert
-                format!(
-                    "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {}",
-                    table_name,
-                    columns.join(", "),
-                    placeholders.join(", "),
-                    conflict_columns,
-                    update_sets.join(", ")
-                )
-            };
-
-            let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
-                params.iter().map(|p| p.as_ref()).collect();
-
-            db.execute(&sql, &param_refs).await?;
+            value_sets.push(format!("({})", placeholders.join(", ")));
         }
+
+        // Build conflict columns for ON CONFLICT clause
+        let conflict_columns = unique_columns.join(", ");
+
+        // Build UPDATE SET clause for conflict resolution
+        let update_sets: Vec<String> = columns
+            .iter()
+            .filter(|col| !unique_columns.contains(&col.as_str())) // Don't update unique columns
+            .map(|col| {
+                // For updated_at fields, use database function instead of excluded value
+                if updated_at_field.is_some() && col == updated_at_field.unwrap() {
+                    format!("{} = NOW()", col)
+                } else {
+                    format!("{} = EXCLUDED.{}", col, col)
+                }
+            })
+            .collect();
+
+        // Build the complete SQL with all value sets
+        let sql = if update_sets.is_empty() {
+            // If no columns to update, just ignore conflicts
+            format!(
+                "INSERT INTO {} ({}) VALUES {} ON CONFLICT ({}) DO NOTHING",
+                table_name,
+                columns.join(", "),
+                value_sets.join(", "),
+                conflict_columns
+            )
+        } else {
+            // Use INSERT ... ON CONFLICT DO UPDATE for proper upsert
+            format!(
+                "INSERT INTO {} ({}) VALUES {} ON CONFLICT ({}) DO UPDATE SET {}",
+                table_name,
+                columns.join(", "),
+                value_sets.join(", "),
+                conflict_columns,
+                update_sets.join(", ")
+            )
+        };
+
+        debug!(sql = %sql, "Executing batch upsert");
+
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Send + Sync)> =
+            all_params.iter().map(|p| p.as_ref()).collect();
+
+        // Use execute_batch to ensure single connection
+        db.execute_batch(&sql, &param_refs).await?;
+
+        debug!(table = table_name, count = models.len(), "Batch upsert completed");
         Ok(())
     }
 
